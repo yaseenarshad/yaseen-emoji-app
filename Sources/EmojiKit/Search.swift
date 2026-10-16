@@ -28,6 +28,8 @@ public enum Search {
         /// True if the full search text gave the match, as one search word.
         /// False if the match comes from the single words of the search.
         public let isWholeText: Bool
+        /// True if the name of the emoji is the search text: "rocket" for 🚀.
+        public let isName: Bool
         /// Your picks of this emoji (`You.uses`).
         public let uses: Int
     }
@@ -66,7 +68,9 @@ public enum Search {
             if let found {
                 let uses = you.uses.isEmpty ? 0 : you.uses[emoji.key]?.count ?? 0
                 candidates.append(Candidate(index: index, order: emoji.order, match: found.match,
-                                            isWholeText: found.isWholeText, uses: uses))
+                                            isWholeText: found.isWholeText,
+                                            isName: found.match == .exact && normalize(emoji.name) == text,
+                                            uses: uses))
             }
         }
         candidates.sort(by: rank)
@@ -76,11 +80,13 @@ public enum Search {
     /// The order of the results (D5). Yaseen may change this rule later
     /// (Decision D5 on https://linear.app/growprofit/issue/YAZ-2894/main-scoping-agent-working-log).
     /// A change of the order must touch only this function and the table in `SearchTests`.
-    /// Today: the better match first. Same match: the full search text before single words, so
-    /// "red heart" gives ❤️ (its name) before ❣️ (the words "red" and "heart").
-    /// Then more uses first. Same uses: Unicode order.
+    /// Today: the better match first. Same match: the emoji whose name is the search text, so
+    /// "rocket" gives 🚀 before 🧑‍🚀 (which has the word "rocket"). Then the full search text before
+    /// single words, so "red heart" gives ❤️ before ❣️ (the words "red" and "heart"). Then more uses
+    /// first. Same uses: Unicode order. A learned word beats all of these, so one pick changes it.
     public static func rank(_ a: Candidate, _ b: Candidate) -> Bool {
         if a.match != b.match { return a.match < b.match }
+        if a.isName != b.isName { return a.isName }
         if a.isWholeText != b.isWholeText { return a.isWholeText }
         if a.uses != b.uses { return a.uses > b.uses }
         return a.order < b.order
