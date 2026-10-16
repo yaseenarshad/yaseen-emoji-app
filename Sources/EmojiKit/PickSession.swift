@@ -71,6 +71,8 @@ final class PickSession {
     private(set) var addingWordFor: Emoji?
 
     weak var panel: PickPanel?
+    /// Runs each time the panel opens, before the grid is made. The app reads the changed history files here (D16).
+    var willOpen: () -> Void = {}
 
     let catalog: [Emoji]
     let store: YouStore
@@ -104,6 +106,7 @@ final class PickSession {
         isOpen = true
         query = ""
         addingWordFor = nil
+        willOpen()
         rebuild()
         panel?.reload()
         panel?.show()
@@ -321,30 +324,28 @@ final class PickSession {
                 newLines.append(.cells(rowStart..<min(rowStart + PickSession.columns, newItems.count)))
             }
         }
-        /// "Your most used", then the groups. With `allGroups` false, the groups come only when
-        /// there are no uses yet, so a right-click can still teach the word on the first day.
-        func addMostUsed(allGroups: Bool) {
+        /// "Your most used", then all the groups. Also with no results (D18): then each emoji is in
+        /// the grid, and a pick of any emoji learns the new search text in one step (D4).
+        func addMostUsedAndGroups() {
             let most = Search.mostUsed(in: catalog, you: store.you, limit: PickSession.mostUsedLimit)
             if !most.isEmpty {
                 let start = newItems.count
                 addSection(PickSession.mostUsedTitle, most)
                 newMostUsed = start..<newItems.count
             }
-            if allGroups || most.isEmpty {
-                for group in groups { addSection(group.name, group.emojis) }
-            }
+            for group in groups { addSection(group.name, group.emojis) }
         }
 
         let text = Search.normalize(query)
         var firstSelection: Int? = 0
         if text.isEmpty {
-            addMostUsed(allGroups: true)
+            addMostUsedAndGroups()
         } else {
             let results = Search.results(for: query, in: catalog, you: store.you)
             if results.isEmpty {
                 newLines.append(.title(PickSession.noMatchTitle(query.trimmingCharacters(in: .whitespaces))))
-                addMostUsed(allGroups: false)
-                // Enter with no results does nothing (D8).
+                addMostUsedAndGroups()
+                // Enter with no results does nothing (D8), until an arrow key puts the blue box on an emoji.
                 firstSelection = nil
             } else {
                 addSection(PickSession.resultsTitle(results.count), results)

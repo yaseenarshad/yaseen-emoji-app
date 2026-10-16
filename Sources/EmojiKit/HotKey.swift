@@ -125,6 +125,21 @@ struct HotKeyCombo: Equatable {
     }()
 }
 
+extension HotKeyCombo {
+    /// A hotkey from a history file (D16), or nil for a value that is not a key code of one byte.
+    init?(_ key: You.Key) {
+        guard (0...0xFF).contains(key.keyCode), key.modifiers >= 0 else { return nil }
+        self.init(keyCode: UInt32(key.keyCode), modifiers: NSEvent.ModifierFlags(rawValue: UInt(key.modifiers)))
+    }
+}
+
+extension You.Key {
+    /// The hotkey for a history file (D16).
+    init(_ combo: HotKeyCombo) {
+        self.init(keyCode: Int(combo.keyCode), modifiers: Int(combo.modifiers.rawValue))
+    }
+}
+
 /// The global hotkey of the app (D8). The raw value is the id that macOS gets for the hotkey.
 enum HotKeyKind: UInt32, CaseIterable {
     /// Opens and closes the search panel.

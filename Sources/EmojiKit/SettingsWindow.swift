@@ -3,7 +3,8 @@ import Carbon.HIToolbox
 import SwiftUI
 
 /// The rows of the settings window (D10): the hotkey, "When you pick", "Default skin tone",
-/// "Start at login", the Accessibility line, "Hidden from Your most used", and "Forget learned words".
+/// "Start at login", the Accessibility line, "Hidden from Your most used", "Forget learned words",
+/// and the preferences folder (D16).
 /// Each change saves at once.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
@@ -24,6 +25,9 @@ struct SettingsView: View {
             }
             Section("Learned words") {
                 forgetRow
+            }
+            Section("Preferences folder") {
+                folderRow
             }
         }
         .formStyle(.grouped)
@@ -127,6 +131,32 @@ struct SettingsView: View {
         }
     }
 
+    /// D16: the folder of the history files, the folder picker, and the way back to the default folder.
+    private var folderRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("Preferences folder") {
+                Text((model.folderPath as NSString).abbreviatingWithTildeInPath)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(model.folderPath)
+            }
+            HStack {
+                Text("Each Mac keeps its own file here. The app adds them up.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+            }
+            HStack {
+                Spacer()
+                Button("Use this Mac only") { model.useThisMacOnly() }
+                    .disabled(model.folderIsDefault)
+                Button("Set preferences folder…") { model.choosePreferencesFolder() }
+            }
+            if let problem = model.folderProblem {
+                Text(problem).font(.callout).foregroundStyle(.red)
+            }
+        }
+    }
+
     /// The first click asks in the same row. No alert: an alert takes the keyboard from the panel.
     private var forgetRow: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -187,6 +217,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         host.sizingOptions = [.preferredContentSize]
         window.contentViewController = host
         window.center()
+        model.pickFolder = { [weak self] done in self?.pickFolder(done) }
+    }
+
+    /// "Set preferences folder…": a folder picker on the settings window. You can make a new folder in it.
+    private func pickFolder(_ done: @escaping (URL?) -> Void) {
+        let picker = NSOpenPanel()
+        picker.canChooseDirectories = true
+        picker.canChooseFiles = false
+        picker.canCreateDirectories = true
+        picker.allowsMultipleSelection = false
+        picker.prompt = "Use This Folder"
+        picker.message = "Pick the preferences folder. Each Mac keeps its own history file in it."
+        picker.directoryURL = URL(fileURLWithPath: model.folderPath, isDirectory: true)
+        // A sheet on this window: the window does not activate the app, and a sheet does not need that.
+        picker.beginSheetModal(for: window) { response in
+            done(response == .OK ? picker.url : nil)
+        }
     }
 
     deinit {

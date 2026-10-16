@@ -10,8 +10,9 @@
 # the GitHub releases page.
 #
 # The first time, the script also imports your history from EmojiFinder (D6).
-# It does this only if the EmojiFinder database exists and you.json does not
-# exist. It reads a copy of the database, so the database of EmojiFinder never
+# It does this only if the EmojiFinder database exists and the app has no
+# history at all: no you.json and no you-*.json in the default folder (D16).
+# It reads a copy of the database, so the database of EmojiFinder never
 # changes.
 #
 # The script changes /Applications. For that reason the owner of the Mac runs
@@ -25,10 +26,19 @@ SOURCE="$ROOT/build/$APP_NAME.app"
 TARGET="/Applications/$APP_NAME.app"
 # This finds each copy of the app that runs, also a copy outside /Applications.
 RUNNING="/$APP_NAME.app/Contents/MacOS/$EXECUTABLE"
-# The history of EmojiFinder, and the file of this app (D4, D6).
+# The history of EmojiFinder, and the default folder of the history files of this app (D4, D6, D16).
 OLD_DB="$HOME/Library/Containers/com.marioiannotta.searchmoji/Data/Documents/Database.sqlite"
 YOU_DIR="$HOME/Library/Application Support/Yaseen Emoji"
-YOU="$YOU_DIR/you.json"
+
+# True if the app has any history: you.json (before D16), or a file of any Mac.
+has_history() {
+    [ -e "$YOU_DIR/you.json" ] && return 0
+    local file
+    for file in "$YOU_DIR"/you-*.json; do
+        [ -e "$file" ] && return 0
+    done
+    return 1
+}
 
 [ -d "$SOURCE" ] || { echo "error: $SOURCE is missing. Run scripts/bundle.sh first." >&2; exit 1; }
 codesign --verify --deep --strict "$SOURCE"
@@ -54,8 +64,8 @@ ditto "$SOURCE" "$TARGET"
 codesign --verify --deep --strict "$TARGET"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$TARGET/Contents/Info.plist")"
 
-# Import the EmojiFinder history one time, before the app opens and reads you.json.
-if [ -f "$OLD_DB" ] && [ ! -e "$YOU" ]; then
+# Import the EmojiFinder history one time, before the app opens and reads its history.
+if [ -f "$OLD_DB" ] && ! has_history; then
     echo "Importing your history from EmojiFinder."
     mkdir -p "$YOU_DIR"
     # The query reads a copy. A plain open of the real file can write the -wal
@@ -67,10 +77,10 @@ if [ -f "$OLD_DB" ] && [ ! -e "$YOU" ]; then
     done
     OLD_COPY="$COPY_DIR/$(basename "$OLD_DB")"
     if sqlite3 -json "$OLD_COPY" "SELECT e.ZEMOJI AS emoji, u.ZCOUNT AS count FROM ZEMOJIUSAGE u JOIN ZEMOJI e ON e.Z_PK = u.ZEMOJI" \
-        | "$TARGET/Contents/MacOS/$EXECUTABLE" --import-uses "$YOU"; then
-        echo "Imported your EmojiFinder history into $YOU."
+        | "$TARGET/Contents/MacOS/$EXECUTABLE" --import-uses "$YOU_DIR"; then
+        echo "Imported your EmojiFinder history into $YOU_DIR."
     else
-        # The app is installed. you.json does not exist, so the next run tries again.
+        # The app is installed. It has no history file, so the next run tries again.
         echo "WARNING: the import of the EmojiFinder history failed. Run this script again to try again." >&2
     fi
     rm -rf "$COPY_DIR"

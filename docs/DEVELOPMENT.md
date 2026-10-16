@@ -45,11 +45,26 @@ The script downloads five sources at fixed versions and checks the SHA-256 of ea
 The import runs only if both of these are true:
 
 - `~/Library/Containers/com.marioiannotta.searchmoji/Data/Documents/Database.sqlite` exists.
-- `~/Library/Application Support/Yaseen Emoji/you.json` does not exist.
+- `~/Library/Application Support/Yaseen Emoji` has no history: no `you.json` and no `you-*.json`.
 
-The script copies the EmojiFinder database into a temporary folder and reads the copy with `sqlite3 -json`. Thus the EmojiFinder database never changes. It sends the rows to `YaseenEmoji --import-uses <path to you.json>`. The app writes `you.json` and exits. If the import fails, the script prints a warning and continues. The next run tries the import again.
+The script copies the EmojiFinder database into a temporary folder and reads the copy with `sqlite3 -json`. Thus the EmojiFinder database never changes. It sends the rows to `YaseenEmoji --import-uses <default folder>`. The app writes this Mac's file, `you-<Mac name>.json`, and exits. If the import fails, the script prints a warning and continues. The next run tries the import again.
 
-`--import-uses` reads rows like `[{"emoji": "🤣", "count": 358}]` on standard input. It adds the counts to `uses` and writes the time of the import in `imported`. A second import into the same file changes nothing. Exit codes: 0 done or nothing changed, 1 bad input, 2 no path.
+`--import-uses` reads rows like `[{"emoji": "🤣", "count": 358}]` on standard input. It adds the counts to `uses` and writes the time of the import in `imported`. With a folder, it does nothing when the folder has any history. A path that ends in `.json` is one file: a second import into the same file changes nothing. Exit codes: 0 done or nothing changed, 1 bad input, 2 no path.
+
+## The preferences folder (D16)
+
+The history and the synced settings are in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. The path is in the pref `yaseenEmoji.preferencesFolder` ("" is the default). Settings → "Set preferences folder…" and "Use this Mac only" change it.
+
+- **One file for each Mac:** `you-<Mac name>.json`. The app makes the Mac name one time from the computer name (A-Z, a-z, 0-9 and `-`) and keeps it in `yaseenEmoji.macName`. Each Mac writes only its own file, so git never gets a conflict.
+- **The merge:** each Mac reads each `you-<name>.json` of the folder. `uses` and `learned` add up, `added` is the union, and `hidden` and each setting use the newest change. The 5,000 learned pairs are a limit of each file. `you.json` and `*.bad.json` never count.
+- **Synced settings:** `settings.hotKey`, `settings.pickMode` and `settings.defaultTone`, each with the time of the change. A Mac writes a setting only when you change it in Settings. `UserDefaults` keeps the value and the time that this Mac applied. A newer hotkey from a different Mac works at once. If macOS refuses it, the old key stays and Settings shows the red line.
+- **Forget learned words:** writes `forgotAt`. Each Mac that sees a newer `forgotAt` clears its own learned and added words, and writes the time in `forgetApplied`.
+- **Reload:** each time the panel or Settings opens, the app lists the folder and reads only the files with a new modification date.
+- **The first start of D16:** if this Mac's file is missing, the app copies this Mac's file of the default folder, or else `you.json`. The source stays as a backup.
+- **A missing folder:** the app uses the default folder, and Settings shows "Can't find the preferences folder. This Mac uses its own history."
+- **The files:** sorted keys, one value on each line, atomic writes.
+
+To point the app at a folder without Settings, quit the app, then run `defaults write com.yaseenarshad.yaseenemoji yaseenEmoji.preferencesFolder -string "<folder>"`, then open the app.
 
 ## The code
 
@@ -65,7 +80,8 @@ The parts of `EmojiKit`:
 - `EmojiData.swift`: `Emoji` and `EmojiCatalog`, the loader of `emoji.json`.
 - `DrawCheck`: hides each emoji that the Apple Color Emoji font of this Mac cannot draw as one picture.
 - `Search`: the search and its order. The order is in one function, `Search.rank` (D5). A change of the order touches only that function and the table in `SearchTests`.
-- `YouStore.swift`: `You` (the contents of `you.json`) and `YouStore` (load, atomic save, the 5,000 learned pairs, the hidden emojis of "Your most used", the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
+- `YouStore.swift`: `You` (the contents of one history file), `You.merge` (the history of all Macs), and `YouStore` (this Mac's file, the files of the other Macs, reload, atomic save, the 5,000 learned pairs, the hidden emojis of "Your most used", the synced settings, the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
+- `PreferencesFolder`: the preferences folder (D16): the Mac name, the file names, the missing folder, and the first copy of this Mac's file.
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
 - `PickSession`: the rules of the panel with no window: the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`) and "Hide from Your most used".
 - `Paster`: a pick. It saves the clipboard, writes the emoji, posts ⌘V, and puts the old clipboard back after 0.3 s. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
