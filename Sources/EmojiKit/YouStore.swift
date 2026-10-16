@@ -128,7 +128,7 @@ public final class YouStore {
         if !text.isEmpty && You.key(text) != key {
             you.learned[text, default: [:]][key, default: You.Use(count: 0, last: time)].count += 1
             you.learned[text]?[key]?.last = time
-            YouStore.dropPastLimit(&you.learned, limit: YouStore.learnedLimit)
+            YouStore.dropPastLimit(&you, limit: YouStore.learnedLimit, keeping: (text, key))
         }
         save()
     }
@@ -182,19 +182,21 @@ public final class YouStore {
         }
     }
 
-    /// Drops pairs until at most `limit` are left: the lowest count first, then the oldest.
-    static func dropPastLimit(_ learned: inout You.Learned, limit: Int) {
-        var extra = learned.values.reduce(0) { $0 + $1.count } - limit
+    /// Drops pairs until at most `limit` are left: the lowest count first, then the oldest (D4).
+    /// It never drops `keeping`, the pair of the pick that happens now. A new pair has the count 1.
+    /// Without this, a full list of pairs with a count of 2 or more would drop each new word at once.
+    static func dropPastLimit(_ you: inout You, limit: Int, keeping: (text: String, key: String)) {
+        var extra = you.learnedPairs - limit
         guard extra > 0 else { return }
-        let pairs = learned.flatMap { text, emojis in emojis.map { (text: text, key: $0.key, use: $0.value) } }
+        let pairs = you.learned.flatMap { text, emojis in emojis.map { (text: text, key: $0.key, use: $0.value) } }
             .sorted { a, b in
                 if a.use.count != b.use.count { return a.use.count < b.use.count }
                 if a.use.last != b.use.last { return a.use.last < b.use.last }
                 return (a.text, a.key) < (b.text, b.key)
             }
-        for pair in pairs where extra > 0 {
-            learned[pair.text]?[pair.key] = nil
-            if learned[pair.text]?.isEmpty == true { learned[pair.text] = nil }
+        for pair in pairs where extra > 0 && (pair.text, pair.key) != keeping {
+            you.learned[pair.text]?[pair.key] = nil
+            if you.learned[pair.text]?.isEmpty == true { you.learned[pair.text] = nil }
             extra -= 1
         }
     }

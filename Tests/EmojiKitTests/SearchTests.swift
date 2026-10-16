@@ -155,27 +155,6 @@ import Testing
         #expect(Search.mostUsed(in: small, you: You()).isEmpty)
     }
 
-    // MARK: Learn and search again
-
-    /// Search, pick an emoji that is not first, and search again: the emoji is first now.
-    @Test func aPickTeachesTheSearch() throws {
-        let folder = try TempFolder()
-        let store = YouStore(url: folder.youFile)
-        store.load()
-
-        let before = Search.results(for: "happy", in: Catalog.all, you: store.you)
-        try #require(before.count > 10)
-        let picked = before[10]
-        store.recordPick(picked.text, query: " Happy")
-
-        #expect(Search.results(for: "happy", in: Catalog.all, you: store.you).first == picked)
-        // A new start of the app reads the same history.
-        let again = YouStore(url: folder.youFile)
-        again.load()
-        #expect(Search.results(for: "HAPPY", in: Catalog.all, you: again.you).first == picked)
-        #expect(Search.mostUsed(in: Catalog.all, you: again.you) == [picked])
-    }
-
     // MARK: Time
 
     /// The budget is 2 ms for each search in a release build (D5). The number goes into the Result comment.

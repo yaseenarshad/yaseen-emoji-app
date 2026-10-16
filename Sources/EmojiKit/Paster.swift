@@ -14,11 +14,6 @@ struct ClipboardContents: Equatable {
     }
 
     var items: [Item]
-
-    /// One text item, as the app writes an emoji.
-    static func text(_ text: String) -> ClipboardContents {
-        ClipboardContents(items: [Item(values: [(NSPasteboard.PasteboardType.string.rawValue, Data(text.utf8))])])
-    }
 }
 
 /// The clipboard (D2). A test uses a fake one, so it never changes the real clipboard.
@@ -29,7 +24,8 @@ protocol Clipboard: AnyObject {
     /// Each item with each of its types.
     func read() -> ClipboardContents
     /// Puts one text on the clipboard. Returns the new `changeCount`: the app's own.
-    func write(_ text: String) -> Int
+    /// `transient`: the text stays only for a paste, so clipboard history apps must not keep it.
+    func write(_ text: String, transient: Bool) -> Int
     /// Puts saved contents back.
     func restore(_ contents: ClipboardContents)
 }
@@ -103,7 +99,7 @@ final class Paster {
         } else {
             saved = clipboard.read()
         }
-        let own = clipboard.write(text)
+        let own = clipboard.write(text, transient: paste)
         guard paste else {
             // Copy only: the emoji stays, and a restore that waits does nothing.
             pending = nil
@@ -129,6 +125,10 @@ final class Paster {
 /// The real clipboard: `NSPasteboard.general`.
 @MainActor
 final class SystemClipboard: Clipboard {
+    /// The mark of nspasteboard.org for an item that is on the clipboard for a short time only.
+    /// Clipboard history apps (Alfred, Raycast, Maccy) do not keep an item with this type.
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
     private let pasteboard = NSPasteboard.general
 
     var changeCount: Int { pasteboard.changeCount }
@@ -141,9 +141,12 @@ final class SystemClipboard: Clipboard {
         return ClipboardContents(items: items)
     }
 
-    func write(_ text: String) -> Int {
+    func write(_ text: String, transient: Bool) -> Int {
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        let item = NSPasteboardItem()
+        item.setString(text, forType: .string)
+        if transient { item.setData(Data(), forType: SystemClipboard.transientType) }
+        pasteboard.writeObjects([item])
         return pasteboard.changeCount
     }
 

@@ -93,6 +93,26 @@ import Testing
         #expect(store.you.learnedPairs == 5_000)
     }
 
+    /// Each pair has the count 2. A new word has the count 1, but it is the pick of now, so it stays.
+    /// Without this, the app could never learn a new word again.
+    @Test func theLearnedLimitKeepsTheNewWord() throws {
+        let folder = try TempFolder()
+        var you = You()
+        for number in 0..<YouStore.learnedLimit {
+            you.learned["word \(number)"] = ["🙂": You.Use(count: 2, last: Date(timeIntervalSince1970: Double(1_000 + number)))]
+        }
+        try FileManager.default.createDirectory(at: folder.youFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try YouStore.encoder.encode(you).write(to: folder.youFile)
+
+        let store = YouStore(url: folder.youFile, now: { Date(timeIntervalSince1970: 9_000) })
+        store.load()
+        store.recordPick("🚀", query: "brand new")
+        #expect(store.you.learned["brand new"]?["🚀"]?.count == 1)
+        #expect(store.you.learned["word 0"] == nil)               // the oldest of the lowest count
+        #expect(store.you.learned["word 1"] != nil)
+        #expect(store.you.learnedPairs == YouStore.learnedLimit)
+    }
+
     @Test func aBadFileBecomesYouBadJson() throws {
         let folder = try TempFolder()
         let dir = folder.youFile.deletingLastPathComponent()

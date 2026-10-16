@@ -87,14 +87,14 @@ import Testing
     }
 
     /// The numbers go into the Result comment. This Mac (macOS 26.6) draws each emoji of Emoji 17.
-    @Test func timingsOfTheLoadAndTheDrawCheck() async throws {
+    @Test func timingsOfTheLoadAndTheDrawCheck() throws {
         guard let url = try? EmojiCatalog.bundledURL() else { Issue.record("no emoji.json"); return }
         var loaded: [Emoji] = []
         let load = try medianMilliseconds(runs: 9) { loaded = try EmojiCatalog.load(from: url) }
 
         let clock = ContinuousClock()
         let start = clock.now
-        let drawable = await DrawCheck.drawableOffMain(loaded)
+        let drawable = DrawCheck.drawable(loaded)
         let check = clock.now - start
 
         let bytes = (try? Data(contentsOf: url).count) ?? 0

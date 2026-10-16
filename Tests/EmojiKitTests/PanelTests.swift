@@ -25,6 +25,8 @@ import Testing
         #expect(!rig.session.isOpen)
         #expect(rig.panel.calls == ["show", "hide"])
         #expect(rig.clipboard.contents == .text("🚀"))
+        // The emoji is there for the paste only, so clipboard history apps do not keep it.
+        #expect(rig.clipboard.lastWriteIsTransient)
         #expect(rig.keys.sent.isEmpty)
 
         rig.later.advance(by: Paster.postDelay)
@@ -41,6 +43,9 @@ import Testing
         saved.load()
         #expect(saved.you.learned["ship"]?[You.key("🚀")]?.count == 1)
         #expect(saved.you.uses[You.key("🚀")]?.count == 1)
+        // A new start of the app gives the same search, in any case.
+        #expect(Search.results(for: "SHIP ", in: Catalog.all, you: saved.you).first?.text == "🚀")
+        #expect(Search.mostUsed(in: Catalog.all, you: saved.you).map(\.text) == ["🚀"])
 
         rig.session.toggle()
         #expect(rig.session.query == "")
@@ -79,7 +84,8 @@ import Testing
     }
 
     /// Copy only (Settings, and ⌘C) posts no key and does not bring back the old clipboard.
-    @Test func copyOnlyPostsNoKey() throws {
+    /// Esc closes with no paste (D8).
+    @Test func copyOnlyAndEscPostNoKey() throws {
         let rig = try PickRig()
         rig.prefs.pickMode = .copyOnly
         rig.session.open()
@@ -89,6 +95,7 @@ import Testing
         rig.later.runAll()
         #expect(rig.keys.sent.isEmpty)
         #expect(rig.clipboard.contents == .text("🚀"))
+        #expect(!rig.clipboard.lastWriteIsTransient)
         #expect(rig.clipboard.restores == 0)
         #expect(!rig.session.isOpen)
 
@@ -103,6 +110,16 @@ import Testing
         #expect(rig.clipboard.contents == .text("🔥"))
         #expect(!rig.session.isOpen)
         #expect(rig.store.you.learned["fire"]?[You.key("🔥")]?.count == 1)
+
+        // Esc: the panel closes, and nothing changes.
+        rig.session.open()
+        rig.session.setQuery("thumbs up")
+        rig.session.escape()
+        rig.later.runAll()
+        #expect(!rig.session.isOpen)
+        #expect(rig.keys.sent.isEmpty)
+        #expect(rig.clipboard.contents == .text("🔥"))
+        #expect(rig.store.you.uses[You.key("👍")] == nil)
     }
 
     /// No Accessibility, or a password field (secure input): copy only. The emoji stays on the clipboard (D2).
@@ -130,6 +147,7 @@ import Testing
     }
 
     /// The user copies something new in the 0.3 s wait: the new copy stays (D2).
+    /// A Copy only pick in the wait: its emoji stays, and the restore of the first pick does nothing.
     @Test func aNewCopyDuringTheWaitIsKept() throws {
         let rig = try PickRig()
         rig.session.open()
@@ -140,6 +158,18 @@ import Testing
         rig.clipboard.userCopies("new copy")
         rig.later.runAll()
         #expect(rig.clipboard.contents == .text("new copy"))
+        #expect(rig.clipboard.restores == 0)
+
+        rig.session.open()
+        rig.session.setQuery("fire")
+        rig.session.enter(shift: false)
+        rig.later.advance(by: Paster.postDelay)
+        rig.session.open()
+        rig.session.setQuery("rocket")
+        rig.session.copyOnly()
+        rig.later.runAll()
+        #expect(rig.keys.sent.count == 2)
+        #expect(rig.clipboard.contents == .text("🚀"))
         #expect(rig.clipboard.restores == 0)
     }
 
