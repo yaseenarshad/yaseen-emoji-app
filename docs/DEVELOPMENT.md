@@ -20,7 +20,17 @@ The version is in one place: `CFBundleShortVersionString` in `Support/Info.plist
 
 ### Resources
 
-SwiftPM puts the resources of `EmojiKit` into `YaseenEmoji_EmojiKit.bundle`, next to the binary. `scripts/bundle.sh` copies each `*.bundle` of the build into `Contents/Resources` of the app. A file at the top of the `.app` breaks the signature. With no resource, the script copies nothing.
+SwiftPM puts the resources of `EmojiKit` into `YaseenEmoji_EmojiKit.bundle`, next to the binary. Today the one resource is `emoji.json`. `scripts/bundle.sh` copies each `*.bundle` of the build into `Contents/Resources` of the app. A file at the top of the `.app` breaks the signature. `EmojiCatalog.bundledURL()` looks in `Contents/Resources` first. It uses `Bundle.module` only outside an `.app`, because an older SwiftPM looks for the bundle in a different place.
+
+### The emoji data
+
+`Sources/EmojiKit/Resources/emoji.json` is in the repository, so a build never goes online. To make it again, for example for a new Emoji version:
+
+```bash
+swift scripts/make-emoji-data.swift
+```
+
+The script downloads five sources at fixed versions and checks the SHA-256 of each file. A changed source stops the script. A new version of a source needs a new URL and a new SHA-256 in the script. Then update `THIRD-PARTY-NOTICES.md`.
 
 ## Install and the EmojiFinder history
 
@@ -39,16 +49,32 @@ The import runs only if both of these are true:
 
 The script copies the EmojiFinder database into a temporary folder and reads the copy with `sqlite3 -json`. Thus the EmojiFinder database never changes. It sends the rows to `YaseenEmoji --import-uses <path to you.json>`. The app writes `you.json` and exits. If the import fails, the script prints a warning and continues. The next run tries the import again.
 
+`--import-uses` reads rows like `[{"emoji": "🤣", "count": 358}]` on standard input. It adds the counts to `uses` and writes the time of the import in `imported`. A second import into the same file changes nothing. Exit codes: 0 done or nothing changed, 1 bad input, 2 no path.
+
 ## The code
 
 - `Sources/EmojiKit`: all the code of the app, as a library. Thus the tests can import it.
-- `Sources/YaseenEmoji`: the executable. It calls `AppController.main()`.
+- `Sources/YaseenEmoji/main.swift`: the executable. It runs `--import-uses`, or it calls `AppController.main()`.
 - `Tests/EmojiKitTests`: the unit tests.
-- `AppController`: the app shell. It starts the app, and puts the menu bar icon on the screen.
-- `StatusMenu`: the menu bar icon (the SF Symbol `face.smiling`, as a template image) and its rows.
+- The package uses the Swift 5 language mode. The compiler of CI can be older than the compiler on your Mac.
+
+The parts of `EmojiKit`:
+
+- `AppController`: the app shell. It loads the catalog off the main thread, and connects the hotkey, the menu, Settings and the panel. `AppParts` holds the parts that touch the system, so a test gives fakes.
+- `StatusMenu`: the menu bar icon (the SF Symbol `face.smiling`, as a template image) and its four rows.
+- `EmojiData.swift`: `Emoji` and `EmojiCatalog`, the loader of `emoji.json`.
+- `DrawCheck`: hides each emoji that the Apple Color Emoji font of this Mac cannot draw as one picture.
+- `Search`: the search and its order. The order is in one function, `Search.rank` (D5). A change of the order touches only that function and the table in `SearchTests`.
+- `YouStore.swift`: `You` (the contents of `you.json`) and `YouStore` (load, atomic save, the 5,000 learned pairs, the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
+- `YouImport`: `--import-uses`, the import of the EmojiFinder history.
+- `PickSession`: the rules of the panel with no window: the search text, the lines of the grid, the blue box, the keys, the picks, the tones and "Add a word…".
+- `Paster`: a pick. It saves the clipboard, writes the emoji, posts ⌘V, and puts the old clipboard back after 0.3 s. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
+- `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`.
+- `EmojiGrid.swift`: one view that draws only the lines on the screen, and the right-click menu.
+- `Prefs`: the settings in `UserDefaults`, with the prefix `yaseenEmoji.`.
+- `SettingsModel` and `SettingsWindow.swift`: the rules of Settings with no window, and the SwiftUI form in a non-activating panel.
 - `HotKey.swift`: the global hotkey (Carbon `RegisterEventHotKey`, no permission). `HotKeyRegistering` is a protocol, so a test uses a fake.
 - `LoginItem.swift`: "Start at login" (`SMAppService`). `LoginItem` is a protocol, so a test uses a fake.
-- The package uses the Swift 5 language mode. The compiler of CI can be older than the compiler on your Mac.
 
 ## Test
 
@@ -56,7 +82,10 @@ The script copies the EmojiFinder database into a temporary folder and reads the
 
 - A test opens no window and uses no mouse and no keyboard. A test posts no key event.
 - A test never registers a real hotkey or a real login item. It uses a fake one.
-- A test writes only into a temporary folder.
+- A test never reads or changes the real clipboard. It uses a fake one.
+- A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
+- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, and the search. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
+- The window parts (the panel, the grid, the menu on the screen) have no test. Check them on the real screen.
 
 ### The log
 
