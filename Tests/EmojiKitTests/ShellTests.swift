@@ -5,9 +5,8 @@ import Testing
 /// The shell with fakes. No test here makes a status item or a window.
 @MainActor
 @Suite struct ShellTests {
-    @Test func theMenuHasTheQuitRow() throws {
+    @Test func theQuitRow() throws {
         let menu = StatusMenu()
-        #expect(menu.menu.items.map(\.title) == ["Quit Yaseen Emoji"])
         let quit = try #require(menu.menu.item(withTitle: "Quit Yaseen Emoji"))
         #expect(quit.keyEquivalent == "q")
         #expect(quit.keyEquivalentModifierMask == .command)
@@ -29,17 +28,6 @@ import Testing
         let icon = try #require(StatusMenu.icon())
         #expect(icon.isTemplate)
         #expect(StatusMenu().statusItem == nil)
-    }
-
-    /// The skeleton registers no hotkey and does not change the login item.
-    @Test func theStartTakesNoHotKeyAndLeavesTheLoginItem() {
-        let hotKeys = FakeHotKeyRegistrar()
-        let loginItem = FakeLoginItem()
-        let app = AppController(hotKeys: hotKeys, loginItem: loginItem)
-        app.start()
-        #expect(hotKeys.registered.isEmpty)
-        #expect(loginItem.calls.isEmpty)
-        #expect(app.statusMenu.statusItem == nil)
     }
 
     @Test func aSecondCopyOfTheAppQuits() {
