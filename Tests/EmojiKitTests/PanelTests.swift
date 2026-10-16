@@ -55,6 +55,21 @@ import Testing
     }
 
     /// Shift+Enter pastes and stays open (D8). Two picks in the wait still bring back the clipboard of the user.
+    /// D13: an empty search shows 4 rows of "Your most used" (36), then the groups. The history keeps all 50.
+    @Test func yourMostUsedShowsFourRows() throws {
+        let rig = try PickRig()
+        for emoji in Catalog.all.prefix(50) { rig.store.recordPick(emoji.text, query: "") }
+        rig.session.open()
+        let lines = rig.session.lines
+        let start = try #require(lines.firstIndex(of: .title(PickSession.mostUsedTitle)))
+        let rows = lines[(start + 1)...].prefix { if case .cells = $0 { return true } else { return false } }
+        #expect(rows.count == 4)
+        #expect(rows.reduce(0) { total, line in
+            if case .cells(let range) = line { return total + range.count } else { return total }
+        } == 36)
+        #expect(rig.store.you.uses.count == 50)
+    }
+
     /// D12: an empty part of the panel drags it, but a click on the grid never does.
     @Test func theGridNeverDragsThePanel() throws {
         let rig = try PickRig()
