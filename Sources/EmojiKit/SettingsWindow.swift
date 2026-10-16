@@ -151,11 +151,14 @@ struct SettingsView: View {
             HStack {
                 Spacer()
                 // Shown only when a different folder is set: it goes back to the private folder of this Mac (no sync).
-                if !model.folderIsDefault {
-                    Button("Reset to Mac Default Folder") { model.useThisMacOnly() }
+                if !model.folderIsDefault && model.confirming != .reset {
+                    Button("Reset to Mac Default Folder…") { model.ask(.reset) }
                         .help("Go back to ~/Library/Application Support/Yaseen Emoji. This Mac stops sharing its history.")
                 }
                 Button("Set preferences folder…") { model.choosePreferencesFolder() }
+            }
+            if model.confirming == .reset {
+                confirmBox(SettingsModel.resetQuestion, button: "Reset")
             }
             if let problem = model.folderProblem {
                 Text(problem).font(.callout).foregroundStyle(.red)
@@ -167,12 +170,7 @@ struct SettingsView: View {
     private var forgetRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.isConfirmingForget {
-                Text(SettingsModel.forgetQuestion)
-                HStack {
-                    Spacer()
-                    Button("Cancel") { model.cancelForget() }
-                    Button("Forget", role: .destructive) { model.forgetWords() }
-                }
+                confirmBox(SettingsModel.forgetQuestion, button: "Forget")
             } else {
                 HStack {
                     Text("Clears the words you taught. Your most used stays.")
@@ -185,6 +183,24 @@ struct SettingsView: View {
                 Text(note).font(.callout).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// D19: a red box. The red button works only after you type the word, for example "forget".
+    private func confirmBox(_ question: String, button: String) -> some View {
+        let word = model.confirming?.word ?? ""
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(question).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                TextField("Type \(word) to confirm", text: $model.typedConfirmation)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.confirm() }
+                Button("Cancel") { model.cancelConfirm() }
+                Button(button, role: .destructive) { model.confirm() }
+                    .disabled(!model.canConfirm)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).stroke(Color.red, lineWidth: 1.5))
     }
 }
 
@@ -306,7 +322,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model.cancelRecording()
-        model.cancelForget()
+        model.cancelConfirm()
         stopKeyMonitor()
     }
 }
