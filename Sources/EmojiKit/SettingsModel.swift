@@ -214,7 +214,7 @@ final class SettingsModel: ObservableObject {
         refresh()
     }
 
-    /// "Use this Mac only": back to the default folder, with this Mac's data of now.
+    /// "Reset to Mac Default Folder": back to the default folder, with this Mac's data of now.
     func useThisMacOnly() {
         usePreferencesFolder(folders.defaultFolder)
     }

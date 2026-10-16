@@ -164,7 +164,7 @@ import Testing
     }
 
     /// The first start of D16 copies `you.json` into this Mac's file. The backup stays, and no pick counts two times.
-    /// A missing folder gives the default folder. "Set preferences folder…" and "Use this Mac only" keep the data.
+    /// A missing folder gives the default folder. "Set preferences folder…" and "Reset to Mac Default Folder" keep the data.
     @Test func theMoveFromYouJsonAndTheFolders() async throws {
         let rig = try PickRig()
         let old = rig.folder.defaultFolder.appendingPathComponent("you.json")
@@ -200,7 +200,7 @@ import Testing
         #expect(again.store.you.uses["🤣"]?.count == 360)
         again.store.recordPick("🤣", query: "")
 
-        // "Use this Mac only": the default folder gets the data of now, also the pick in the other folder.
+        // "Reset to Mac Default Folder": the default folder gets the data of now, also the pick in the other folder.
         again.settings.useThisMacOnly()
         #expect(rig.prefs.preferencesFolder.isEmpty && again.settings.folderIsDefault)
         #expect(again.store.url == rig.folder.defaultFolder.appendingPathComponent("you-Test-Mac.json"))
