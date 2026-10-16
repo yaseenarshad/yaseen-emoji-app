@@ -4,6 +4,7 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 
 - About 10 search words for each of the 1,914 emojis of Emoji 17, from three free word lists. "haha", "praise" and "launch" all find their emoji.
 - It learns: the emoji that you pick for a word comes first the next time. Right-click an emoji to add a word of your own.
+- A word with no match still shows "Your most used" and all the groups. Pick any emoji there, and the word finds it the next time.
 - It pastes for you, then puts your old clipboard back.
 - macOS 14 or later, Apple Silicon. No Dock icon: the app lives in the menu bar.
 - No network use and no tracking.

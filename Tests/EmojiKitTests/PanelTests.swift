@@ -249,6 +249,33 @@ import Testing
         #expect(session.selection == 0)
     }
 
+    /// D18: a search with no results shows "Your most used" and all the groups. A pick of an emoji
+    /// from a group learns the new search text, so the next search with it puts that emoji first.
+    @Test func aNewWordCanTeachAnyEmoji() throws {
+        let rig = try PickRig()
+        for emoji in Catalog.all.prefix(40) { rig.store.recordPick(emoji.text, query: "") }
+        let otter = try #require(Catalog.emoji("🦦"))
+        let session = rig.session
+        session.open()
+        session.setQuery("zzbet")
+        #expect(session.lines.first == .title(PickSession.noMatchTitle("zzbet")))
+        #expect(session.lines.contains(.title(PickSession.mostUsedTitle)))
+        for group in EmojiCatalog.groupNames { #expect(session.lines.contains(.title(group)), "\(group)") }
+        #expect(session.selection == nil)
+        let place = try #require(session.items.firstIndex(of: otter))
+        #expect(!(session.mostUsedItems?.contains(place) ?? false))
+        // "Hide from Your most used" stays only in that section.
+        #expect(session.menuActions(at: place) == [.addWord, .copyOnly])
+        #expect(session.menuActions(at: 0).last == .hideFromMostUsed)
+
+        session.select(place)
+        session.enter(shift: false)
+        #expect(rig.store.you.learned["zzbet"]?[otter.key]?.count == 1)
+        session.open()
+        session.setQuery("zzbet")
+        #expect(session.items.first == otter && session.selection == 0)
+    }
+
     /// The shown form (D9, D17): the default tone of Settings for an emoji that takes a tone, else the
     /// emoji itself. Settings is the only tone choice. A pick of a tone form counts the base emoji.
     @Test func theShownFormOfAnEmoji() throws {
