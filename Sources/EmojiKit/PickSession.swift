@@ -194,9 +194,8 @@ final class PickSession {
             paster.deliver(text, paste: false)
         }
         store.recordPick(text, query: query)
-        // The learned word can move the emoji up. The blue box stays on the same emoji.
-        rebuild(keeping: emoji)
-        panel?.reload()
+        // The list does not move while the panel stays open, so the blue box stays where you
+        // look. The new use and the learned word change the order the next time.
     }
 
     /// ⌘C and the right-click "Copy only": the emoji goes on the clipboard, and the panel closes (D8).

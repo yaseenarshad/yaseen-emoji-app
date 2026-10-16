@@ -60,8 +60,11 @@ import Testing
         rig.session.open()
         rig.session.setQuery("thumb")
         try rig.select("👍")
+        let before = (items: rig.session.items, selection: rig.session.selection)
         rig.session.enter(shift: true)
         #expect(rig.session.isOpen)
+        // The list does not move while the panel stays open.
+        #expect(rig.session.items == before.items && rig.session.selection == before.selection)
         #expect(rig.session.query == "thumb")
         #expect(rig.session.selectedEmoji?.text == "👍")
         #expect(rig.panel.calls == ["show", "stepAside"])
