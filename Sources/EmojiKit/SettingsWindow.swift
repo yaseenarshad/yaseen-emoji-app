@@ -141,14 +141,20 @@ struct SettingsView: View {
                     .help(model.folderPath)
             }
             HStack {
-                Text("Each Mac keeps its own file here. The app adds them up.")
+                Text(model.folderIsDefault
+                     ? "This is the Mac default folder. Only this Mac uses it. To share your history with your other Macs, set a folder that syncs."
+                     : "Each Mac saves its own file here. The app combines them, so your Macs share one history.")
                     .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
             }
             HStack {
                 Spacer()
-                Button("Use this Mac only") { model.useThisMacOnly() }
-                    .disabled(model.folderIsDefault)
+                // Shown only when a different folder is set: it goes back to the private folder of this Mac (no sync).
+                if !model.folderIsDefault {
+                    Button("Reset to Mac Default Folder") { model.useThisMacOnly() }
+                        .help("Go back to ~/Library/Application Support/Yaseen Emoji. This Mac stops sharing its history.")
+                }
                 Button("Set preferences folder…") { model.choosePreferencesFolder() }
             }
             if let problem = model.folderProblem {

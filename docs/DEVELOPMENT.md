@@ -53,7 +53,7 @@ The script copies the EmojiFinder database into a temporary folder and reads the
 
 ## The preferences folder (D16)
 
-The history and the synced settings are in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. The path is in the pref `yaseenEmoji.preferencesFolder` ("" is the default). Settings → "Set preferences folder…" and "Use this Mac only" change it.
+The history and the synced settings are in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. The path is in the pref `yaseenEmoji.preferencesFolder` ("" is the default). Settings → "Set preferences folder…" and "Reset to Mac Default Folder" change it.
 
 - **One file for each Mac:** `you-<Mac name>.json`. The app makes the Mac name one time from the computer name (A-Z, a-z, 0-9 and `-`) and keeps it in `yaseenEmoji.macName`. Each Mac writes only its own file, so git never gets a conflict.
 - **The merge:** each Mac reads each `you-<name>.json` of the folder. `uses` and `learned` add up, `added` is the union, and `hidden` and each setting use the newest change. The 5,000 learned pairs are a limit of each file. `you.json` and `*.bad.json` never count.
