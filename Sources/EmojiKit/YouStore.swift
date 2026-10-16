@@ -13,6 +13,17 @@ public struct You: Codable, Equatable, Sendable {
         }
     }
 
+    /// One emoji hidden from "Your most used" (D15), or shown again. `at` is the time of the change,
+    /// so a later sync can keep the newest change of each emoji.
+    public struct Hide: Codable, Equatable, Sendable {
+        public var on: Bool
+        public var at: Date
+        public init(on: Bool, at: Date) {
+            self.on = on
+            self.at = at
+        }
+    }
+
     /// The emojis for each search text: search text → emoji key → how many times, and the last time.
     public typealias Learned = [String: [String: Use]]
 
@@ -22,32 +33,36 @@ public struct You: Codable, Equatable, Sendable {
     public var learned: Learned
     /// Emoji key → the words you added by hand.
     public var added: [String: [String]]
-    /// Emoji key → the skin tone form you picked for that emoji. It wins over the default tone.
-    public var tones: [String: String]
+    /// Emoji key → hidden from "Your most used" or not (D15). The search does not read it.
+    public var hidden: [String: Hide]
     /// The time of the import from EmojiFinder (D6). An import happens one time only.
     public var imported: Date?
 
     public init(uses: [String: Use] = [:], learned: Learned = [:], added: [String: [String]] = [:],
-                tones: [String: String] = [:], imported: Date? = nil) {
+                hidden: [String: Hide] = [:], imported: Date? = nil) {
         self.uses = uses
         self.learned = learned
         self.added = added
-        self.tones = tones
+        self.hidden = hidden
         self.imported = imported
     }
 
     /// A field that is missing gives an empty value, so an older file still loads.
+    /// An unknown field is ignored: an older file with `tones` (D9, removed by D17) still loads.
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         uses = try values.decodeIfPresent([String: Use].self, forKey: .uses) ?? [:]
         learned = try values.decodeIfPresent(Learned.self, forKey: .learned) ?? [:]
         added = try values.decodeIfPresent([String: [String]].self, forKey: .added) ?? [:]
-        tones = try values.decodeIfPresent([String: String].self, forKey: .tones) ?? [:]
+        hidden = try values.decodeIfPresent([String: Hide].self, forKey: .hidden) ?? [:]
         imported = try values.decodeIfPresent(Date.self, forKey: .imported)
     }
 
     /// The number of learned pairs (one search text and one emoji).
     public var learnedPairs: Int { learned.values.reduce(0) { $0 + $1.count } }
+
+    /// True if the emoji with this key is hidden from "Your most used" now.
+    public func isHidden(_ key: String) -> Bool { hidden[key]?.on == true }
 
     /// The key of an emoji in `you.json`: the emoji without U+FE0F and without a skin tone mark.
     /// The sources and EmojiFinder do not agree on U+FE0F. The store, the search and the import
@@ -145,15 +160,28 @@ public final class YouStore {
         save()
     }
 
-    /// The skin tone form for one emoji, or nil to use the default tone again (D9).
-    public func setTone(_ form: String?, for emoji: String) {
+    /// The right-click "Hide from Your most used" (D15). The uses and the learned words stay,
+    /// so the search ranks the emoji the same as before.
+    public func hide(_ emoji: String) {
         let key = You.key(emoji)
         guard !key.isEmpty else { return }
-        you.tones[key] = form
+        you.hidden[key] = You.Hide(on: true, at: now())
         save()
     }
 
-    /// Settings → "Forget learned words": clears `learned` and `added`. It keeps `uses` and `tones`.
+    /// Settings → "Show them again" (D15). Each entry stays, with `on` false and the time of now,
+    /// so a later sync knows that this change is newer than the hide.
+    public func showHidden() {
+        guard !you.hidden.isEmpty else { return }
+        let time = now()
+        for key in you.hidden.keys { you.hidden[key] = You.Hide(on: false, at: time) }
+        save()
+    }
+
+    /// The number of emojis hidden from "Your most used" now.
+    public var hiddenCount: Int { you.hidden.values.filter(\.on).count }
+
+    /// Settings → "Forget learned words": clears `learned` and `added`. It keeps `uses` and `hidden`.
     public func forgetWords() {
         you.learned = [:]
         you.added = [:]

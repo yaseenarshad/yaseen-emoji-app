@@ -65,12 +65,12 @@ The parts of `EmojiKit`:
 - `EmojiData.swift`: `Emoji` and `EmojiCatalog`, the loader of `emoji.json`.
 - `DrawCheck`: hides each emoji that the Apple Color Emoji font of this Mac cannot draw as one picture.
 - `Search`: the search and its order. The order is in one function, `Search.rank` (D5). A change of the order touches only that function and the table in `SearchTests`.
-- `YouStore.swift`: `You` (the contents of `you.json`) and `YouStore` (load, atomic save, the 5,000 learned pairs, the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
+- `YouStore.swift`: `You` (the contents of `you.json`) and `YouStore` (load, atomic save, the 5,000 learned pairs, the hidden emojis of "Your most used", the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
-- `PickSession`: the rules of the panel with no window: the search text, the lines of the grid, the blue box, the keys, the picks, the tones and "Add a word…".
+- `PickSession`: the rules of the panel with no window: the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`) and "Hide from Your most used".
 - `Paster`: a pick. It saves the clipboard, writes the emoji, posts ⌘V, and puts the old clipboard back after 0.3 s. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
 - `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`.
-- `EmojiGrid.swift`: one view that draws only the lines on the screen, and the right-click menu.
+- `EmojiGrid.swift`: one view that draws only the lines on the screen, the right-click menu, and the drag of the panel (a move of more than 4 points, `EmojiGridView.isDrag(from:to:)`).
 - `Prefs`: the settings in `UserDefaults`, with the prefix `yaseenEmoji.`.
 - `SettingsModel` and `SettingsWindow.swift`: the rules of Settings with no window, and the SwiftUI form in a non-activating panel.
 - `HotKey.swift`: the global hotkey (Carbon `RegisterEventHotKey`, no permission). `HotKeyRegistering` is a protocol, so a test uses a fake.

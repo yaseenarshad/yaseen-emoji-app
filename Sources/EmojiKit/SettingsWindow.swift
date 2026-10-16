@@ -3,7 +3,8 @@ import Carbon.HIToolbox
 import SwiftUI
 
 /// The rows of the settings window (D10): the hotkey, "When you pick", "Default skin tone",
-/// "Start at login", the Accessibility line, and "Forget learned words". Each change saves at once.
+/// "Start at login", the Accessibility line, "Hidden from Your most used", and "Forget learned words".
+/// Each change saves at once.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
@@ -17,6 +18,9 @@ struct SettingsView: View {
             }
             Section("Accessibility") {
                 accessibilityRow
+            }
+            Section("Your most used") {
+                hiddenRow
             }
             Section("Learned words") {
                 forgetRow
@@ -109,6 +113,20 @@ struct SettingsView: View {
         }
     }
 
+    /// D15: the count of hidden emojis, and the button that brings them back. No button with none.
+    private var hiddenRow: some View {
+        LabeledContent("Hidden from Your most used") {
+            if model.hiddenCount == 0 {
+                Text("None")
+            } else {
+                HStack {
+                    Text("\(model.hiddenCount)")
+                    Button("Show them again") { model.showHidden() }
+                }
+            }
+        }
+    }
+
     /// The first click asks in the same row. No alert: an alert takes the keyboard from the panel.
     private var forgetRow: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -121,7 +139,7 @@ struct SettingsView: View {
                 }
             } else {
                 HStack {
-                    Text("Clears the words you taught. Your most used and your tones stay.")
+                    Text("Clears the words you taught. Your most used stays.")
                         .font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button("Forget learned words…") { model.askToForget() }

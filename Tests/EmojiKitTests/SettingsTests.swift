@@ -92,12 +92,14 @@ import Testing
         #expect(!model.keyDown(commandE))
     }
 
-    /// "Forget learned words" asks one time, then calls `forgetWords`: the uses and the tones stay (D4).
+    /// "Forget learned words" asks one time, then calls `forgetWords`: the uses and the hidden emojis stay (D4).
+    /// "Show them again" brings the hidden emojis back (D15).
     @Test func forgetLearnedWordsCallsForgetWords() throws {
         let rig = try PickRig()
         rig.store.recordPick("🚀", query: "ship")
         rig.store.addWord("blastoff", to: "🚀")
-        rig.store.setTone("👍🏽", for: "👍")
+        rig.store.recordPick("👍", query: "")
+        rig.store.hide("👍")
         let model = makeModel(rig, hotKeys: FakeHotKeyRegistrar())
 
         model.askToForget()
@@ -113,7 +115,14 @@ import Testing
         saved.load()
         #expect(saved.you.learned.isEmpty && saved.you.added.isEmpty)
         #expect(saved.you.uses[You.key("🚀")]?.count == 1)
-        #expect(saved.you.tones[You.key("👍")] == "👍🏽")
+        #expect(saved.hiddenCount == 1)
+
+        // The panel hid one more emoji while Settings was closed: the row reads it again.
+        rig.store.hide("🚀")
+        model.refresh()
+        #expect(model.hiddenCount == 2)
+        model.showHidden()
+        #expect(model.hiddenCount == 0 && rig.store.hiddenCount == 0)
     }
 
     /// The menu (D10), the hotkey that opens and closes the panel (D8), and the first launch.

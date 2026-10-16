@@ -18,11 +18,12 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 | ⌘C | Copy the emoji only, and close. |
 | Arrow keys | Move the blue box. |
 | Esc | Close, with no paste. |
-| Right-click | The skin tones of that emoji, "Add a word…", and "Copy only". |
+| Right-click | "Add a word…" and "Copy only". In "Your most used", also "Hide from Your most used". |
+| Press and drag | Move the panel, from any part. The text in the search box still selects. The next open puts the panel in the middle again. |
 
 ## Settings
 
-The menu bar icon (a smiley) has "Find an emoji", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has the hotkey, "When you pick" (Paste or Copy only), the default skin tone, "Start at login", the Accessibility state, and "Forget learned words". Each change saves at once.
+The menu bar icon (a smiley) has "Find an emoji", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has the hotkey, "When you pick" (Paste or Copy only), the default skin tone (the only skin tone choice), "Start at login", the Accessibility state, "Hidden from Your most used" with "Show them again", and "Forget learned words". Each change saves at once.
 
 To paste for you, the app needs the Accessibility permission. It asks one time, at the first start. Without it, a pick copies the emoji only.
 
