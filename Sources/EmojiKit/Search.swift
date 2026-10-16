@@ -1,0 +1,158 @@
+import Foundation
+
+/// The search of the panel (D5 on YAZ-2894). A full scan of the catalog for each key press, with no index.
+/// The catalog has 1,914 emojis and about 19,000 words. The budget is 2 ms in a release build.
+public enum Search {
+    /// How well an emoji matches the search, best first.
+    public enum Match: Int, Comparable, Sendable {
+        /// You picked this emoji for this exact search text before (D4).
+        case learned
+        /// One of its words, or its name, is the search text.
+        case exact
+        /// One of its words starts with the search text.
+        case prefix
+        /// Its name contains the search text.
+        case inName
+
+        public static func < (a: Match, b: Match) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    /// One emoji that matches, with the facts that `rank` sorts by.
+    /// It has no `Emoji` value, so the sort moves only small values.
+    public struct Candidate: Sendable {
+        /// The place of the emoji in the catalog that the search got.
+        public let index: Int
+        /// `Emoji.order`: the place in the Unicode order.
+        public let order: Int
+        public let match: Match
+        /// True if the full search text gave the match, as one search word.
+        /// False if the match comes from the single words of the search.
+        public let isWholeText: Bool
+        /// Your picks of this emoji (`You.uses`).
+        public let uses: Int
+    }
+
+    /// The search text: trimmed, in lower case, with one space between words.
+    /// The store learns this text, so a search and a pick always agree.
+    public static func normalize(_ query: String) -> String {
+        query.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// The emojis for a search, best first. An empty search gives no results:
+    /// the panel then shows `mostUsed`. A typed or pasted emoji comes first.
+    public static func results(for query: String, in catalog: [Emoji], you: You) -> [Emoji] {
+        let text = normalize(query)
+        guard !text.isEmpty else { return [] }
+        let textBytes = Array(text.utf8)
+        let terms = text.split(separator: " ").map { Array($0.utf8) }
+        let typedKey = You.key(text)
+        let learned = you.learned[text] ?? [:]
+        let added = you.added.mapValues { words in words.map { Array($0.utf8) } }
+
+        var typed: [Emoji] = []
+        var candidates: [Candidate] = []
+        for (index, emoji) in catalog.enumerated() {
+            if emoji.key == typedKey {
+                typed.append(emoji)
+                continue
+            }
+            let found: (match: Match, isWholeText: Bool)?
+            if !learned.isEmpty && learned[emoji.key] != nil {
+                found = (.learned, true)
+            } else {
+                let addedWords = added.isEmpty ? [] : added[emoji.key] ?? []
+                found = match(text: textBytes, terms: terms, emoji: emoji, added: addedWords)
+            }
+            if let found {
+                let uses = you.uses.isEmpty ? 0 : you.uses[emoji.key]?.count ?? 0
+                candidates.append(Candidate(index: index, order: emoji.order, match: found.match,
+                                            isWholeText: found.isWholeText, uses: uses))
+            }
+        }
+        candidates.sort(by: rank)
+        return typed + candidates.map { catalog[$0.index] }
+    }
+
+    /// The order of the results (D5). Yaseen may change this rule later
+    /// (Decision D5 on https://linear.app/growprofit/issue/YAZ-2894/main-scoping-agent-working-log).
+    /// A change of the order must touch only this function and the table in `SearchTests`.
+    /// Today: the better match first. Same match: the full search text before single words, so
+    /// "red heart" gives ❤️ (its name) before ❣️ (the words "red" and "heart").
+    /// Then more uses first. Same uses: Unicode order.
+    public static func rank(_ a: Candidate, _ b: Candidate) -> Bool {
+        if a.match != b.match { return a.match < b.match }
+        if a.isWholeText != b.isWholeText { return a.isWholeText }
+        if a.uses != b.uses { return a.uses > b.uses }
+        return a.order < b.order
+    }
+
+    /// The match of one emoji, or nil. The full text first, so "red heart" is an exact match of the
+    /// name of ❤️. With two or more words, each word must match, and the weakest word gives the match.
+    /// Added words count the same as the words of the list.
+    /// `isWholeText` is true when the full text gives the match.
+    static func match(text: String, terms: [String], emoji: Emoji, added: [String]) -> (match: Match, isWholeText: Bool)? {
+        match(text: Array(text.utf8), terms: terms.map { Array($0.utf8) }, emoji: emoji,
+              added: added.map { Array($0.utf8) })
+    }
+
+    private static func match(
+        text: [UInt8], terms: [[UInt8]], emoji: Emoji, added: [[UInt8]]
+    ) -> (match: Match, isWholeText: Bool)? {
+        let whole = match(term: text, emoji: emoji, added: added)
+        guard terms.count > 1, whole != .exact else { return whole.map { ($0, true) } }
+        var weakest = Match.learned
+        for term in terms {
+            guard let match = match(term: term, emoji: emoji, added: added) else { return whole.map { ($0, true) } }
+            weakest = max(weakest, match)
+        }
+        if let whole, whole <= weakest { return (whole, true) }
+        return (weakest, false)
+    }
+
+    /// The best match of one search word, on UTF-8 bytes. Both sides are in lower case.
+    private static func match(term: [UInt8], emoji: Emoji, added: [[UInt8]]) -> Match? {
+        term.withUnsafeBufferPointer { term in
+            if same(emoji.nameBytes, term) { return .exact }
+            var best: Match?
+            for word in emoji.wordBytes {
+                if same(word, term) { return .exact }
+                if best == nil && hasPrefix(word, term) { best = .prefix }
+            }
+            for word in added {
+                if same(word, term) { return .exact }
+                if best == nil && hasPrefix(word, term) { best = .prefix }
+            }
+            if best == nil && contains(emoji.nameBytes, term) { best = .inName }
+            return best
+        }
+    }
+
+    // `memcmp` and `memmem` compare the bytes. They are fast in a debug build too, so `swift test` stays fast.
+
+    private static func same(_ bytes: [UInt8], _ term: UnsafeBufferPointer<UInt8>) -> Bool {
+        bytes.count == term.count && hasPrefix(bytes, term)
+    }
+
+    private static func hasPrefix(_ bytes: [UInt8], _ term: UnsafeBufferPointer<UInt8>) -> Bool {
+        guard bytes.count >= term.count else { return false }
+        guard let termStart = term.baseAddress, term.count > 0 else { return true }
+        return bytes.withUnsafeBufferPointer { memcmp($0.baseAddress!, termStart, term.count) == 0 }
+    }
+
+    private static func contains(_ bytes: [UInt8], _ term: UnsafeBufferPointer<UInt8>) -> Bool {
+        guard bytes.count >= term.count else { return false }
+        guard let termStart = term.baseAddress, term.count > 0 else { return true }
+        return bytes.withUnsafeBufferPointer { memmem($0.baseAddress!, $0.count, termStart, term.count) != nil }
+    }
+
+    /// "Your most used": the emojis with the most uses, then the last use first, then Unicode order.
+    public static func mostUsed(in catalog: [Emoji], you: You, limit: Int = 18) -> [Emoji] {
+        let used = catalog.compactMap { emoji in you.uses[emoji.key].map { (emoji: emoji, use: $0) } }
+        let sorted = used.sorted { a, b in
+            if a.use.count != b.use.count { return a.use.count > b.use.count }
+            if a.use.last != b.use.last { return a.use.last > b.use.last }
+            return a.emoji.order < b.emoji.order
+        }
+        return sorted.prefix(max(0, limit)).map(\.emoji)
+    }
+}

@@ -9,7 +9,8 @@ let package = Package(
     ],
     targets: [
         // All the code lives in the library, so the tests can import it.
-        .target(name: "EmojiKit"),
+        // `emoji.json` is the catalog that `scripts/make-emoji-data.swift` makes (D3).
+        .target(name: "EmojiKit", resources: [.copy("Resources/emoji.json")]),
         .executableTarget(name: "YaseenEmoji", dependencies: ["EmojiKit"]),
         .testTarget(name: "EmojiKitTests", dependencies: ["EmojiKit"]),
     ],
