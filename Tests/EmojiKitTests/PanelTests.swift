@@ -55,6 +55,12 @@ import Testing
     }
 
     /// Shift+Enter pastes and stays open (D8). Two picks in the wait still bring back the clipboard of the user.
+    /// D12: an empty part of the panel drags it, but a click on the grid never does.
+    @Test func theGridNeverDragsThePanel() throws {
+        let rig = try PickRig()
+        #expect(EmojiGridView(session: rig.session).mouseDownCanMoveWindow == false)
+    }
+
     @Test func shiftEnterKeepsThePanelOpen() throws {
         let rig = try PickRig()
         rig.session.open()
