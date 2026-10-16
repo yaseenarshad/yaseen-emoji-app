@@ -152,7 +152,7 @@ public enum Search {
     }
 
     /// "Your most used": the emojis with the most uses, then the last use first, then Unicode order.
-    public static func mostUsed(in catalog: [Emoji], you: You, limit: Int = 18) -> [Emoji] {
+    public static func mostUsed(in catalog: [Emoji], you: You, limit: Int = 36) -> [Emoji] {
         let used = catalog.compactMap { emoji in you.uses[emoji.key].map { (emoji: emoji, use: $0) } }
         let sorted = used.sorted { a, b in
             if a.use.count != b.use.count { return a.use.count > b.use.count }

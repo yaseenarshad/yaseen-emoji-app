@@ -27,8 +27,9 @@ protocol PickPanel: AnyObject {
 final class PickSession {
     /// The grid has 9 emojis in each row (D7).
     static let columns = 9
-    /// "Your most used": the top 18 by uses (D7).
-    static let mostUsedLimit = 18
+    /// "Your most used": 4 rows of 9, the top 36 by uses (D7, D13). The history keeps every use;
+    /// this limit is only for the screen.
+    static let mostUsedLimit = 36
     static let mostUsedTitle = "Your most used"
 
     enum Direction {
