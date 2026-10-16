@@ -26,6 +26,9 @@ import Testing
         Row(query: "praise", has: ["🙌"]),
         Row(query: "strong", has: ["💪"]),
         Row(query: "launch", first: "🚀"),
+        Row(query: "rocket", first: "🚀"),       // its name, before 🧑‍🚀 with the word "rocket"
+        Row(query: "fire", first: "🔥"),
+        Row(query: "ship", first: "🚢"),
         Row(query: "red heart", first: "❤️"),
         Row(query: "thumbs up", first: "👍"),
         Row(query: "fingerprint", first: "🫆"),
@@ -94,7 +97,8 @@ import Testing
     }
 
     @Test func moreUsesWinsBetweenTwoExactMatches() {
-        #expect(order("sun", used(["🏝️": 3, "🌻": 1])) == ["🏝️", "🌻", "☀️", "🌞", "🧴"])
+        // ☀️ has the name "sun", so it stays first. The uses order the other exact matches.
+        #expect(order("sun", used(["🏝️": 3, "🌻": 1])) == ["☀️", "🏝️", "🌻", "🌞", "🧴"])
         // Uses never lift a weaker match over a better one.
         #expect(order("sun", used(["🧴": 99])).first == "☀️")
     }
