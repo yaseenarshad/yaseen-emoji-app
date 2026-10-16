@@ -177,6 +177,9 @@ final class EmojiGridView: NSView, NSMenuDelegate {
 
     // MARK: The mouse
 
+    /// A click on the grid picks an emoji. It never drags the panel (D12).
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func mouseDown(with event: NSEvent) {
         pressed = index(at: convert(event.locationInWindow, from: nil))
         if let pressed { session.select(pressed) }
