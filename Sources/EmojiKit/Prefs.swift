@@ -30,8 +30,10 @@ enum SkinTone {
     static func sample(_ tone: String) -> String { "👍" + tone }
 }
 
-/// The settings of the app, in `UserDefaults` (D2, D8, D9).
+/// The settings of the app, in `UserDefaults` (D2, D8, D9, D16).
 ///
+/// The hotkey, "When you pick" and the default skin tone also sync through the history files (D16).
+/// `UserDefaults` is the cache of this Mac: it keeps the value and the time of the change that this Mac applied.
 /// The `UserDefaults` is a parameter, so a test gives one that keeps its values in memory.
 /// A value that is missing or broken gives the start value. Prefs never fail.
 /// "Start at login" is not here: macOS keeps it (`LoginItem.isEnabled`).
@@ -42,6 +44,11 @@ final class Prefs {
         static let pickMode = "yaseenEmoji.pickMode"
         static let defaultTone = "yaseenEmoji.defaultTone"
         static let askedForAccessibility = "yaseenEmoji.askedForAccessibility"
+        static let hotKeyChangedAt = "yaseenEmoji.hotKeyChangedAt"
+        static let pickModeChangedAt = "yaseenEmoji.pickModeChangedAt"
+        static let defaultToneChangedAt = "yaseenEmoji.defaultToneChangedAt"
+        static let preferencesFolder = "yaseenEmoji.preferencesFolder"
+        static let macName = "yaseenEmoji.macName"
     }
 
     private let defaults: UserDefaults
@@ -87,5 +94,41 @@ final class Prefs {
     var askedForAccessibility: Bool {
         get { defaults.object(forKey: Key.askedForAccessibility) as? Bool ?? false }
         set { defaults.set(newValue, forKey: Key.askedForAccessibility) }
+    }
+
+    // MARK: D16
+
+    /// The time of the hotkey, "When you pick" and the default skin tone that this Mac uses now.
+    /// The app applies a setting from a history file only when it is newer. Nil: no dated change yet.
+    var hotKeyChangedAt: Date? {
+        get { defaults.object(forKey: Key.hotKeyChangedAt) as? Date }
+        set { defaults.set(newValue, forKey: Key.hotKeyChangedAt) }
+    }
+
+    var pickModeChangedAt: Date? {
+        get { defaults.object(forKey: Key.pickModeChangedAt) as? Date }
+        set { defaults.set(newValue, forKey: Key.pickModeChangedAt) }
+    }
+
+    var defaultToneChangedAt: Date? {
+        get { defaults.object(forKey: Key.defaultToneChangedAt) as? Date }
+        set { defaults.set(newValue, forKey: Key.defaultToneChangedAt) }
+    }
+
+    /// The path of the preferences folder. "" is the default folder. It stays on each Mac.
+    var preferencesFolder: String {
+        get { defaults.object(forKey: Key.preferencesFolder) as? String ?? "" }
+        set { defaults.set(newValue, forKey: Key.preferencesFolder) }
+    }
+
+    /// The safe name of this Mac for `you-<Mac name>.json`. The first call makes it from the computer
+    /// name and keeps it, so a rename of the Mac does not make a second file.
+    func macName(computerName: () -> String) -> String {
+        if let name = defaults.object(forKey: Key.macName) as? String, PreferencesFolder.safeName(name) == name {
+            return name
+        }
+        let name = PreferencesFolder.safeName(computerName())
+        defaults.set(name, forKey: Key.macName)
+        return name
     }
 }

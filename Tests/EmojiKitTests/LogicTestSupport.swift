@@ -25,6 +25,9 @@ final class TempFolder {
     /// `you.json` in a subfolder that does not exist yet, as on the first start of the app.
     var youFile: URL { url.appendingPathComponent("Yaseen Emoji/you.json") }
 
+    /// The default preferences folder of a test (D16): `Yaseen Emoji` in the temp folder.
+    var defaultFolder: URL { url.appendingPathComponent("Yaseen Emoji", isDirectory: true) }
+
     func names(in folder: URL) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
     }

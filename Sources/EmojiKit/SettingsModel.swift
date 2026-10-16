@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15).
+/// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -16,6 +16,7 @@ final class SettingsModel: ObservableObject {
     static let accessibilityOffText = "Accessibility is off. A pick copies only."
     static let forgetQuestion = "Forget all learned and added words? Your most used stays."
     static let forgottenText = "The learned words are gone."
+    static let folderNotWrittenText = "Yaseen Emoji can't write into this folder. Pick a different folder."
     /// The Accessibility pane of System Settings.
     static let accessibilityURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
 
@@ -37,6 +38,12 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var forgetNote: String?
     /// The emojis hidden from "Your most used" (D15).
     @Published private(set) var hiddenCount = 0
+    /// The preferences folder that you chose, or the default folder (D16).
+    @Published private(set) var folderPath = ""
+    /// True when this Mac uses the default folder.
+    @Published private(set) var folderIsDefault = true
+    /// The red line below the preferences folder: the folder is missing, or the app can't write into it.
+    @Published private(set) var folderProblem: String?
 
     /// The menu shows the hotkey, so the app must know each change.
     var onHotKeyChanged: (HotKeyCombo) -> Void = { _ in }
@@ -44,19 +51,26 @@ final class SettingsModel: ObservableObject {
     var onTonesChanged: () -> Void = {}
     /// Opens a URL. The app opens System Settings. A test keeps the URL.
     var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// Asks for a folder and gives it, or nil on Cancel. The window shows the folder picker. A test gives a folder.
+    var pickFolder: (@escaping (URL?) -> Void) -> Void = { $0(nil) }
 
     private let prefs: Prefs
     private let hotKeys: HotKeyRegistering
     private let loginItem: LoginItem
     private let access: PasteAccess
     private let store: YouStore
+    private let folders: PreferencesFolder
+    /// The red line of a folder that the app could not write. The next refresh keeps it.
+    private var folderWriteProblem: String?
 
-    init(prefs: Prefs, hotKeys: HotKeyRegistering, loginItem: LoginItem, access: PasteAccess, store: YouStore) {
+    init(prefs: Prefs, hotKeys: HotKeyRegistering, loginItem: LoginItem, access: PasteAccess, store: YouStore,
+         folders: PreferencesFolder) {
         self.prefs = prefs
         self.hotKeys = hotKeys
         self.loginItem = loginItem
         self.access = access
         self.store = store
+        self.folders = folders
         hotKey = prefs.hotKey
         pickMode = prefs.pickMode
         defaultTone = prefs.defaultTone
@@ -101,6 +115,8 @@ final class SettingsModel: ObservableObject {
             // Store only a key that macOS accepted. It works at once, with no restart.
             hotKey = combo
             prefs.hotKey = combo
+            // The other Macs get it through this Mac's history file (D16).
+            prefs.hotKeyChangedAt = store.setHotKey(You.Key(combo))
             hotKeyProblem = nil
             onHotKeyChanged(combo)
         } else {
@@ -115,14 +131,92 @@ final class SettingsModel: ObservableObject {
 
     func setPickMode(_ mode: PickMode) {
         prefs.pickMode = mode
+        prefs.pickModeChangedAt = store.setPickMode(mode.rawValue)
         pickMode = mode
     }
 
     func setDefaultTone(_ tone: String) {
         guard SkinTone.all.contains(tone) else { return }
         prefs.defaultTone = tone
+        prefs.defaultToneChangedAt = store.setDefaultTone(tone)
         defaultTone = tone
         onTonesChanged()
+    }
+
+    // MARK: The settings of the other Macs (D16)
+
+    /// Uses each setting of the history files that is newer than the value of this Mac: the newest change wins.
+    /// A new hotkey works at once. When macOS refuses it, the old key stays, the red line shows,
+    /// and the next change of the files tries again. The app calls this after a load or a reload.
+    func applySynced() {
+        let synced = store.you.settings
+        if let mode = synced.pickMode, isNewer(mode.at, than: prefs.pickModeChangedAt),
+           let value = PickMode(rawValue: mode.value) {
+            prefs.pickMode = value
+            prefs.pickModeChangedAt = mode.at
+            pickMode = value
+        }
+        if let tone = synced.defaultTone, isNewer(tone.at, than: prefs.defaultToneChangedAt),
+           SkinTone.all.contains(tone.value) {
+            prefs.defaultTone = tone.value
+            prefs.defaultToneChangedAt = tone.at
+            if defaultTone != tone.value {
+                defaultTone = tone.value
+                onTonesChanged()
+            }
+        }
+        // The recorder has the hotkey off. The next reload applies the key.
+        if let key = synced.hotKey, isNewer(key.at, than: prefs.hotKeyChangedAt), !isRecording,
+           let combo = HotKeyCombo(key.value), combo.isValid {
+            if combo == hotKey {
+                prefs.hotKeyChangedAt = key.at
+            } else if hotKeys.register(combo, for: .findEmoji) {
+                hotKey = combo
+                prefs.hotKey = combo
+                prefs.hotKeyChangedAt = key.at
+                hotKeyProblem = nil
+                onHotKeyChanged(combo)
+            } else {
+                registerHotKey()
+                hotKeyProblem = SettingsModel.refusedText
+            }
+        }
+    }
+
+    private func isNewer(_ date: Date, than applied: Date?) -> Bool {
+        applied.map { date > $0 } ?? true
+    }
+
+    // MARK: The preferences folder (D16)
+
+    /// "Set preferences folder…": the folder picker, then `usePreferencesFolder`.
+    func choosePreferencesFolder() {
+        pickFolder { [weak self] folder in
+            guard let folder else { return }
+            self?.usePreferencesFolder(folder)
+        }
+    }
+
+    /// Writes this Mac's file into `folder`, then uses the folder. The files of the other Macs
+    /// that are already there count at once, and their newer settings apply. The old file stays.
+    func usePreferencesFolder(_ folder: URL) {
+        let isDefault = folder.standardizedFileURL.path == folders.defaultFolder.standardizedFileURL.path
+        do {
+            try store.move(to: folders.ownFile(in: folder))
+        } catch {
+            folderWriteProblem = SettingsModel.folderNotWrittenText
+            refresh()
+            return
+        }
+        prefs.preferencesFolder = isDefault ? "" : folder.path
+        folderWriteProblem = nil
+        applySynced()
+        refresh()
+    }
+
+    /// "Use this Mac only": back to the default folder, with this Mac's data of now.
+    func useThisMacOnly() {
+        usePreferencesFolder(folders.defaultFolder)
     }
 
     // MARK: Start at login
@@ -166,6 +260,13 @@ final class SettingsModel: ObservableObject {
         accessibilityIsOn = access.isTrusted
         // The panel can hide an emoji while this window is closed.
         hiddenCount = store.hiddenCount
+        let chosen = prefs.preferencesFolder
+        folderIsDefault = chosen.isEmpty
+        folderPath = chosen.isEmpty ? folders.defaultFolder.path : chosen
+        // The store uses the default folder when the chosen folder was missing at the start.
+        let isMissing = !chosen.isEmpty
+            && store.folder.standardizedFileURL.path != URL(fileURLWithPath: chosen).standardizedFileURL.path
+        folderProblem = folderWriteProblem ?? (isMissing ? PreferencesFolder.missingText : nil)
     }
 
     // MARK: Hidden from Your most used (D15)

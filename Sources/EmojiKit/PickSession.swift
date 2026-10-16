@@ -71,6 +71,8 @@ final class PickSession {
     private(set) var addingWordFor: Emoji?
 
     weak var panel: PickPanel?
+    /// Runs each time the panel opens, before the grid is made. The app reads the changed history files here (D16).
+    var willOpen: () -> Void = {}
 
     let catalog: [Emoji]
     let store: YouStore
@@ -104,6 +106,7 @@ final class PickSession {
         isOpen = true
         query = ""
         addingWordFor = nil
+        willOpen()
         rebuild()
         panel?.reload()
         panel?.show()

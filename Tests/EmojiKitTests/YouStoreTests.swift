@@ -281,7 +281,7 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: folder.youFile.path))
     }
 
-    @Test func theDefaultFileIsInApplicationSupport() {
-        #expect(YouStore.defaultURL.path.hasSuffix("/Library/Application Support/Yaseen Emoji/you.json"))
+    @Test func theDefaultFolderIsInApplicationSupport() {
+        #expect(YouStore.defaultFolder.path.hasSuffix("/Library/Application Support/Yaseen Emoji"))
     }
 }

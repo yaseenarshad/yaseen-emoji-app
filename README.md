@@ -23,11 +23,13 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 
 ## Settings
 
-The menu bar icon (a smiley) has "Find an emoji", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has the hotkey, "When you pick" (Paste or Copy only), the default skin tone (the only skin tone choice), "Start at login", the Accessibility state, "Hidden from Your most used" with "Show them again", and "Forget learned words". Each change saves at once.
+The menu bar icon (a smiley) has "Find an emoji", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has the hotkey, "When you pick" (Paste or Copy only), the default skin tone (the only skin tone choice), "Start at login", the Accessibility state, "Hidden from Your most used" with "Show them again", "Forget learned words", and the preferences folder. Each change saves at once.
 
 To paste for you, the app needs the Accessibility permission. It asks one time, at the first start. Without it, a pick copies the emoji only.
 
-Your history is in `~/Library/Application Support/Yaseen Emoji/you.json`.
+Your history is in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. Each Mac writes its own file there, `you-<Mac name>.json`.
+
+To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "When you pick" and the default skin tone. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Use this Mac only" goes back to the default folder.
 
 ## Build and install
 

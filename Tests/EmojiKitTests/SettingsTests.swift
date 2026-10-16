@@ -11,7 +11,8 @@ import Testing
     private let commandK = HotKeyCombo(keyCode: UInt32(kVK_ANSI_K), modifiers: .command)
 
     private func makeModel(_ rig: PickRig, hotKeys: FakeHotKeyRegistrar, loginItem: FakeLoginItem = FakeLoginItem()) -> SettingsModel {
-        let model = SettingsModel(prefs: rig.prefs, hotKeys: hotKeys, loginItem: loginItem, access: rig.access, store: rig.store)
+        let model = SettingsModel(prefs: rig.prefs, hotKeys: hotKeys, loginItem: loginItem, access: rig.access, store: rig.store,
+                                  folders: rig.folders)
         model.registerHotKey()
         return model
     }

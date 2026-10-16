@@ -145,6 +145,8 @@ final class PickRig {
     let later = FakeLater()
     let panel = FakePanel()
     let session: PickSession
+    /// The default preferences folder of the rig, and the Mac name "Test-Mac".
+    var folders: PreferencesFolder { PreferencesFolder(defaultFolder: folder.defaultFolder, macName: "Test-Mac") }
 
     init(catalog: [Emoji] = Catalog.all, trusted: Bool = true) throws {
         folder = try TempFolder()
@@ -168,7 +170,8 @@ final class PickRig {
 
     /// The parts of an `AppController` with the same fakes, and a catalog that loads with no file.
     func parts(catalog: [Emoji]) -> AppParts {
-        AppParts(defaults: defaults, youURL: folder.youFile, loadCatalog: { catalog },
+        AppParts(defaults: defaults, defaultFolder: folder.defaultFolder, computerName: { "Test Mac" },
+                 loadCatalog: { catalog },
                  clipboard: clipboard, keys: keys, access: access, later: later,
                  makePanel: { [panel] _ in panel })
     }

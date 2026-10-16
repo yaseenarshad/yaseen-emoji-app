@@ -2,11 +2,14 @@ import AppKit
 import os
 
 /// The parts that the app shell connects. `real()` is for the app. A test gives fakes,
-/// so no test shows a window, posts a key, reads the real clipboard or the real `you.json`.
+/// so no test shows a window, posts a key, reads the real clipboard or the real history files.
 @MainActor
 struct AppParts {
     var defaults: UserDefaults
-    var youURL: URL
+    /// The default preferences folder (D16): `~/Library/Application Support/Yaseen Emoji` in the app.
+    var defaultFolder: URL
+    /// The computer name, for the name of this Mac's history file. Read one time only.
+    var computerName: () -> String
     /// The catalog after the draw check. It runs off the main thread.
     var loadCatalog: () async -> [Emoji]
     var clipboard: Clipboard
@@ -19,7 +22,8 @@ struct AppParts {
     static func real() -> AppParts {
         AppParts(
             defaults: .standard,
-            youURL: YouStore.defaultURL,
+            defaultFolder: YouStore.defaultFolder,
+            computerName: PreferencesFolder.computerName,
             loadCatalog: AppController.loadCatalog,
             clipboard: SystemClipboard(),
             keys: SystemKeySender(),
@@ -42,6 +46,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     let settings: SettingsModel
     let prefs: Prefs
     let store: YouStore
+    /// The preferences folder and the name of this Mac's history file (D16).
+    let folders: PreferencesFolder
 
     /// The global hotkey (D8).
     let hotKeys: HotKeyRegistering
@@ -71,9 +77,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
         self.loginItem = loginItem
         self.parts = parts
         prefs = Prefs(defaults: parts.defaults)
-        store = YouStore(url: parts.youURL)
+        folders = PreferencesFolder(defaultFolder: parts.defaultFolder, macName: prefs.macName(computerName: parts.computerName))
+        // A chosen folder that is missing gives the default folder. Settings shows why (D16).
+        let place = folders.resolve(chosen: prefs.preferencesFolder)
+        store = YouStore(url: folders.ownFile(in: place.folder))
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
-        settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store)
+        settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
+                                 folders: folders)
     }
 
     /// Starts the app with the real hotkey center and the real login item. It does not return.
@@ -145,19 +155,25 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // This Mac's file, the first time: a copy of the history that this Mac has (D16). The source stays.
+        if let source = folders.seedIfMissing(store.url) {
+            log.info("\(self.store.url.lastPathComponent, privacy: .public) is a copy of \(source.path, privacy: .public).")
+        }
+        store.load()
+        if let bad = store.movedBadFile {
+            log.error("\(self.store.url.lastPathComponent, privacy: .public) could not be read. It is now \(bad.lastPathComponent, privacy: .public).")
+        } else if let error = store.saveError {
+            // The bad file could not move away. The app keeps it and saves no change.
+            log.error("The history file could not be read or moved. No change is saved: \(String(describing: error), privacy: .public)")
+        }
+
         // The app continues to run when macOS refuses the hotkey. The menu still opens the panel,
         // and Settings shows the red line.
         settings.registerHotKey()
+        // A newer hotkey, pick mode or tone from a different Mac replaces the stored one (D16).
+        settings.applySynced()
         if settings.hotKeyProblem != nil {
             log.error("macOS refused the hotkey \(self.settings.hotKey.text, privacy: .public). A different app can have it.")
-        }
-
-        store.load()
-        if let bad = store.movedBadFile {
-            log.error("you.json could not be read. It is now \(bad.lastPathComponent, privacy: .public).")
-        } else if let error = store.saveError {
-            // The bad file could not move away. The app keeps it and saves no change.
-            log.error("you.json could not be read or moved. No change is saved: \(String(describing: error), privacy: .public)")
         }
         askForAccessibilityAtFirstLaunch()
 
@@ -179,6 +195,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let session = PickSession(catalog: catalog, store: store, prefs: prefs, paster: paster)
         let panel = parts.makePanel(session)
         session.panel = panel
+        session.willOpen = { [weak self] in self?.reloadHistory() }
         self.session = session
         self.panel = panel
         if opensWhenReady {
@@ -206,6 +223,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
         session.open()
     }
 
+    /// Reads the changed history files of the other Macs (D16), and applies their newer settings.
+    /// The panel calls it each time it opens. With no change, it only lists the folder.
+    func reloadHistory() {
+        guard store.reload() else { return }
+        settings.applySynced()
+        settings.refresh()
+    }
+
     private func showStartAtLogin() {
         statusMenu.showStartAtLogin(settings.startAtLogin, isAvailable: settings.loginItemIsAvailable)
     }
@@ -228,6 +253,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func showSettingsWindow() {
         session?.close()
+        reloadHistory()
         // One window for the life of the app. A second "Settings…" shows the same window.
         let window = settingsWindow ?? SettingsWindowController(model: settings)
         settingsWindow = window
