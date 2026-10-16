@@ -1,0 +1,3 @@
+import EmojiKit
+
+AppController.main()
