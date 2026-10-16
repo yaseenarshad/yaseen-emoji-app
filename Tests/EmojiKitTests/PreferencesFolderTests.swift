@@ -201,7 +201,12 @@ import Testing
         again.store.recordPick("🤣", query: "")
 
         // "Reset to Mac Default Folder": the default folder gets the data of now, also the pick in the other folder.
-        again.settings.useThisMacOnly()
+        // D19: nothing changes until you type "reset".
+        again.settings.ask(.reset)
+        again.settings.confirm()
+        #expect(rig.prefs.preferencesFolder == sync.path)
+        again.settings.typedConfirmation = "reset"
+        again.settings.confirm()
         #expect(rig.prefs.preferencesFolder.isEmpty && again.settings.folderIsDefault)
         #expect(again.store.url == rig.folder.defaultFolder.appendingPathComponent("you-Test-Mac.json"))
         #expect(again.store.you.uses["🤣"]?.count == 359)

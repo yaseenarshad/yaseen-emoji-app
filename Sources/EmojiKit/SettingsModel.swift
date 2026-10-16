@@ -14,7 +14,8 @@ final class SettingsModel: ObservableObject {
     static let loginItemNotChangedText = "macOS did not change this setting. Look at Login Items in System Settings."
     static let accessibilityOnText = "Accessibility is on. A pick pastes into your app."
     static let accessibilityOffText = "Accessibility is off. A pick copies only."
-    static let forgetQuestion = "Forget all learned and added words? Your most used stays."
+    static let forgetQuestion = "This deletes every word the app learned and every word you added, on all your Macs. You can't undo it. Your most used stays."
+    static let resetQuestion = "This Mac stops sharing its history with your other Macs. Your files stay in the folder."
     static let forgottenText = "The learned words are gone."
     static let folderNotWrittenText = "Yaseen Emoji can't write into this folder. Pick a different folder."
     /// The Accessibility pane of System Settings.
@@ -32,8 +33,10 @@ final class SettingsModel: ObservableObject {
     /// The red line below the switch.
     @Published private(set) var loginItemProblem: String?
     @Published private(set) var accessibilityIsOn = false
-    /// True while the row "Forget learned words" asks to confirm.
-    @Published private(set) var isConfirmingForget = false
+    /// The row that asks you to type a word before its button works (D19), or nil.
+    @Published private(set) var confirming: Danger?
+    /// What you typed in the box of that row.
+    @Published var typedConfirmation = ""
     /// The grey line after "Forget".
     @Published private(set) var forgetNote: String?
     /// The emojis hidden from "Your most used" (D15).
@@ -215,6 +218,7 @@ final class SettingsModel: ObservableObject {
     }
 
     /// "Reset to Mac Default Folder": back to the default folder, with this Mac's data of now.
+    /// Settings asks you to type "reset" first (D19).
     func useThisMacOnly() {
         usePreferencesFolder(folders.defaultFolder)
     }
@@ -279,20 +283,53 @@ final class SettingsModel: ObservableObject {
 
     // MARK: Forget learned words (D4)
 
-    /// The first click on "Forget learned words": the row asks to confirm.
-    func askToForget() {
-        forgetNote = nil
-        isConfirmingForget = true
-    }
-
-    func cancelForget() {
-        isConfirmingForget = false
-    }
-
     /// "Forget": clears `learned` and `added`. Your uses and the hidden emojis stay.
+    /// Settings asks you to type "forget" first (D19).
     func forgetWords() {
         store.forgetWords()
-        isConfirmingForget = false
         forgetNote = SettingsModel.forgottenText
     }
+
+    // MARK: Type to confirm (D19)
+
+    /// The two buttons that you must confirm by typing a word.
+    enum Danger: Equatable {
+        case reset, forget
+        /// The word to type.
+        var word: String { self == .reset ? "reset" : "forget" }
+    }
+
+    var isConfirmingForget: Bool { confirming == .forget }
+
+    /// The first click: the row asks you to type the word.
+    func ask(_ danger: Danger) {
+        forgetNote = nil
+        typedConfirmation = ""
+        confirming = danger
+    }
+
+    func askToForget() { ask(.forget) }
+
+    /// True when the box has the word, in any case, with no extra spaces.
+    var canConfirm: Bool {
+        guard let confirming else { return false }
+        return typedConfirmation.trimmingCharacters(in: .whitespaces).lowercased() == confirming.word
+    }
+
+    /// The red button. It does nothing until the box has the word.
+    func confirm() {
+        guard canConfirm, let danger = confirming else { return }
+        cancelConfirm()
+        switch danger {
+        case .reset: useThisMacOnly()
+        case .forget: forgetWords()
+        }
+    }
+
+    func cancelConfirm() {
+        confirming = nil
+        typedConfirmation = ""
+    }
+
+    func cancelForget() { cancelConfirm() }
 }

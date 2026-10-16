@@ -30,7 +30,7 @@ To paste for you, the app needs the Accessibility permission. It asks one time, 
 
 Your history is in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. Each Mac writes its own file there, `you-<Mac name>.json`.
 
-To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "When you pick" and the default skin tone. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Reset to Mac Default Folder" goes back to the default folder.
+To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "When you pick" and the default skin tone. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Reset to Mac Default Folder" goes back to the default folder. It and "Forget learned words" ask you to type a word first ("reset" or "forget").
 
 ## Build and install
 

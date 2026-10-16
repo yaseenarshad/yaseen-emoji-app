@@ -108,8 +108,13 @@ import Testing
         model.cancelForget()
         #expect(rig.store.you.learnedPairs == 1)
 
+        // D19: the red button does nothing until you type "forget".
         model.askToForget()
-        model.forgetWords()
+        model.typedConfirmation = "forgot"
+        model.confirm()
+        #expect(model.isConfirmingForget && rig.store.you.learnedPairs == 1)
+        model.typedConfirmation = " Forget "
+        model.confirm()
         #expect(!model.isConfirmingForget)
         #expect(model.forgetNote == SettingsModel.forgottenText)
         let saved = YouStore(url: rig.folder.youFile)
