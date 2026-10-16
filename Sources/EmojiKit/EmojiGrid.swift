@@ -58,6 +58,8 @@ final class EmojiGridView: NSView, NSMenuDelegate {
     private var drawnSelection: Int?
     /// The emoji of the last mouse-down. A mouse-up on the same emoji is a click.
     private var pressed: Int?
+    /// The point of the last mouse-down, in the window, also on a title or a gap. Nil after a drag starts.
+    private var downPoint: NSPoint?
     /// True while the right-click menu is open. The panel must not close then.
     private(set) var menuIsOpen = false
 
@@ -177,50 +179,62 @@ final class EmojiGridView: NSView, NSMenuDelegate {
 
     // MARK: The mouse
 
-    /// A click on the grid picks an emoji. It never drags the panel (D12).
+    /// A move of more than this many points is a drag of the panel, not a click (D14).
+    static let dragDistance: CGFloat = 4
+
+    /// True when the mouse moved more than `dragDistance` points from the mouse-down (D14).
+    static func isDrag(from start: NSPoint, to end: NSPoint) -> Bool {
+        hypot(end.x - start.x, end.y - start.y) > dragDistance
+    }
+
+    /// AppKit must not move the panel on a mouse-down here: then a click could not pick.
+    /// The view starts the drag itself, after a real move (D14).
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
+        downPoint = event.locationInWindow
         pressed = index(at: convert(event.locationInWindow, from: nil))
         if let pressed { session.select(pressed) }
     }
 
-    /// A click is the same as Enter (D8).
+    /// Press and move anywhere on the grid drags the panel: an emoji, a title or a gap (D14).
+    /// macOS moves the panel until the mouse-up, so the mouse-up never picks.
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = downPoint, EmojiGridView.isDrag(from: start, to: event.locationInWindow) else { return }
+        downPoint = nil
+        pressed = nil
+        window?.performDrag(with: event)
+    }
+
+    /// A click with no move is the same as Enter (D8).
     override func mouseUp(with event: NSEvent) {
-        defer { pressed = nil }
+        defer {
+            pressed = nil
+            downPoint = nil
+        }
         guard let pressed, index(at: convert(event.locationInWindow, from: nil)) == pressed else { return }
         session.pick(stayOpen: false)
     }
 
-    /// The right-click menu: the six tone forms (only for an emoji that takes a tone),
-    /// "Add a word…" and "Copy only".
+    /// The right-click menu: the items of `PickSession.menuActions(at:)` (D15, D17).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let index = index(at: convert(event.locationInWindow, from: nil)) else { return nil }
         session.select(index)
-        let emoji = session.items[index]
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        let shown = session.shown(emoji)
-        for form in session.toneChoices(for: emoji) {
-            let item = NSMenuItem(title: form, action: #selector(pickTone(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = form
-            item.state = (form == shown) ? .on : .off
-            menu.addItem(item)
-        }
-        if !menu.items.isEmpty { menu.addItem(.separator()) }
-        for (title, action) in [("Add a word…", #selector(addWord)), ("Copy only", #selector(copyOnly))] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        for action in session.menuActions(at: index) {
+            let selector: Selector
+            switch action {
+            case .addWord: selector = #selector(addWord)
+            case .copyOnly: selector = #selector(copyOnly)
+            case .hideFromMostUsed: selector = #selector(hideFromMostUsed)
+            }
+            let item = NSMenuItem(title: action.title, action: selector, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
         return menu
-    }
-
-    @objc private func pickTone(_ sender: NSMenuItem) {
-        guard let form = sender.representedObject as? String, let emoji = session.selectedEmoji else { return }
-        session.setTone(form, for: emoji)
     }
 
     @objc private func addWord() {
@@ -229,6 +243,11 @@ final class EmojiGridView: NSView, NSMenuDelegate {
     }
 
     @objc private func copyOnly() { session.copyOnly() }
+
+    @objc private func hideFromMostUsed() {
+        guard let emoji = session.selectedEmoji else { return }
+        session.hideFromMostUsed(emoji)
+    }
 
     func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
     func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }

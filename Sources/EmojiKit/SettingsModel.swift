@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10).
+/// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -14,7 +14,7 @@ final class SettingsModel: ObservableObject {
     static let loginItemNotChangedText = "macOS did not change this setting. Look at Login Items in System Settings."
     static let accessibilityOnText = "Accessibility is on. A pick pastes into your app."
     static let accessibilityOffText = "Accessibility is off. A pick copies only."
-    static let forgetQuestion = "Forget all learned and added words? Your most used and your tones stay."
+    static let forgetQuestion = "Forget all learned and added words? Your most used stays."
     static let forgottenText = "The learned words are gone."
     /// The Accessibility pane of System Settings.
     static let accessibilityURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
@@ -35,6 +35,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var isConfirmingForget = false
     /// The grey line after "Forget".
     @Published private(set) var forgetNote: String?
+    /// The emojis hidden from "Your most used" (D15).
+    @Published private(set) var hiddenCount = 0
 
     /// The menu shows the hotkey, so the app must know each change.
     var onHotKeyChanged: (HotKeyCombo) -> Void = { _ in }
@@ -162,6 +164,16 @@ final class SettingsModel: ObservableObject {
     func refresh() {
         startAtLogin = loginItem.isAvailable && loginItem.isEnabled
         accessibilityIsOn = access.isTrusted
+        // The panel can hide an emoji while this window is closed.
+        hiddenCount = store.hiddenCount
+    }
+
+    // MARK: Hidden from Your most used (D15)
+
+    /// "Show them again": each hidden emoji comes back to "Your most used".
+    func showHidden() {
+        store.showHidden()
+        hiddenCount = store.hiddenCount
     }
 
     // MARK: Forget learned words (D4)
@@ -176,7 +188,7 @@ final class SettingsModel: ObservableObject {
         isConfirmingForget = false
     }
 
-    /// "Forget": clears `learned` and `added`. Your uses and tones stay.
+    /// "Forget": clears `learned` and `added`. Your uses and the hidden emojis stay.
     func forgetWords() {
         store.forgetWords()
         isConfirmingForget = false

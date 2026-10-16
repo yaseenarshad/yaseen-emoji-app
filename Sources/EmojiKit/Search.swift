@@ -152,8 +152,11 @@ public enum Search {
     }
 
     /// "Your most used": the emojis with the most uses, then the last use first, then Unicode order.
+    /// A hidden emoji is not in it (D15), and the next emoji takes its place, so the list stays full.
     public static func mostUsed(in catalog: [Emoji], you: You, limit: Int = 36) -> [Emoji] {
-        let used = catalog.compactMap { emoji in you.uses[emoji.key].map { (emoji: emoji, use: $0) } }
+        let used = catalog.compactMap { emoji in
+            you.isHidden(emoji.key) ? nil : you.uses[emoji.key].map { (emoji: emoji, use: $0) }
+        }
         let sorted = used.sorted { a, b in
             if a.use.count != b.use.count { return a.use.count > b.use.count }
             if a.use.last != b.use.last { return a.use.last > b.use.last }

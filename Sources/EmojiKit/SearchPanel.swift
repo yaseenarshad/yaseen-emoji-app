@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Where the panel opens (D7): in the middle of the screen with the mouse, in the upper third, like Spotlight.
-/// You can drag the panel while it is open (D12). The next open puts it in the middle again.
+/// You can drag the panel while it is open, from any part (D12, D14). The next open puts it in the middle again.
 /// A pure function, so a test checks it with no screen.
 enum PanelPlace {
     /// The top of the panel is this part of the screen height below the top of the visible frame.
@@ -41,7 +41,8 @@ final class SearchPanel: NSPanel {
         hasShadow = true
         isReleasedWhenClosed = false
         animationBehavior = .utilityWindow
-        // D12: drag an empty part of the panel to move it. The grid and the search box keep their clicks.
+        // D12: drag an empty part of the panel to move it. The grid starts its own drag (D14).
+        // The search box does not drag, so you can select its text.
         isMovableByWindowBackground = true
     }
 

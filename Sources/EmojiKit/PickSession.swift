@@ -18,7 +18,7 @@ protocol PickPanel: AnyObject {
     func showSelection()
 }
 
-/// The rules of the search panel, with no window and no view (D5, D7, D8, D9).
+/// The rules of the search panel, with no window and no view (D5, D7, D8, D9, D15, D17).
 ///
 /// It holds the search text, the lines of the grid, the blue box, and what each key does.
 /// The panel is a thin adapter: it turns key presses and clicks into these calls and shows
@@ -36,6 +36,19 @@ final class PickSession {
         case left, right, up, down
     }
 
+    /// One item of the right-click menu. The grid makes the `NSMenu` from these, so a test checks the items.
+    enum MenuAction: Equatable {
+        case addWord, copyOnly, hideFromMostUsed
+
+        var title: String {
+            switch self {
+            case .addWord: return "Add a word…"
+            case .copyOnly: return "Copy only"
+            case .hideFromMostUsed: return "Hide from Your most used"
+            }
+        }
+    }
+
     /// One line of the grid: a title, or a row of up to 9 emojis.
     enum Line: Equatable {
         case title(String)
@@ -50,6 +63,8 @@ final class PickSession {
     /// The emojis of the grid, in the order of the grid. One emoji can be in two sections.
     private(set) var items: [Emoji] = []
     private(set) var lines: [Line] = []
+    /// The places in `items` of the "Your most used" section, or nil when the grid has no such section.
+    private(set) var mostUsedItems: Range<Int>?
     /// The place of the blue box in `items`. Nil when no emoji has the blue box.
     private(set) var selection: Int?
     /// The emoji that waits for a word from "Add a word…" (with an empty search).
@@ -210,27 +225,33 @@ final class PickSession {
         store.recordPick(text, query: query)
     }
 
-    // MARK: Skin tones (D9)
+    // MARK: Skin tones (D9, D17)
 
-    /// The form that the grid shows and that a pick pastes: the tone of this emoji, then the
-    /// default tone of Settings, then yellow.
+    /// The form that the grid shows and that a pick pastes: the default tone of Settings for an
+    /// emoji that takes a tone, else the emoji itself (yellow). Settings is the only tone choice (D17).
     func shown(_ emoji: Emoji) -> String {
-        if let own = store.you.tones[emoji.key] { return own }
         if let place = SkinTone.formIndex(prefs.defaultTone), emoji.toneForms.indices.contains(place) {
             return emoji.toneForms[place]
         }
         return emoji.text
     }
 
-    /// The six forms of the right-click menu: yellow, then light to dark. Empty if the emoji takes no tone.
-    func toneChoices(for emoji: Emoji) -> [String] {
-        emoji.takesTone ? [emoji.text] + emoji.toneForms : []
+    // MARK: The right-click menu (D4, D15, D17)
+
+    /// The items for the emoji at `index`: "Add a word…", "Copy only", and "Hide from Your most used"
+    /// only in the "Your most used" section. No tone forms (D17).
+    func menuActions(at index: Int) -> [MenuAction] {
+        guard items.indices.contains(index) else { return [] }
+        var actions: [MenuAction] = [.addWord, .copyOnly]
+        if mostUsedItems?.contains(index) == true { actions.append(.hideFromMostUsed) }
+        return actions
     }
 
-    /// A right-click tone: it is for this emoji only, and it wins over the default tone.
-    func setTone(_ form: String, for emoji: Emoji) {
-        guard toneChoices(for: emoji).contains(form) else { return }
-        store.setTone(form, for: emoji.text)
+    /// "Hide from Your most used" (D15): the emoji leaves the section, and the next emoji fills its place.
+    /// The panel stays open. The search still ranks the emoji the same.
+    func hideFromMostUsed(_ emoji: Emoji) {
+        store.hide(emoji.text)
+        rebuild()
         panel?.reload()
     }
 
@@ -252,6 +273,7 @@ final class PickSession {
             addingWordFor = emoji
             lines = [.title(PickSession.addingWordText(emoji))]
             items = []
+            mostUsedItems = nil
             selection = nil
             panel?.reload()
         }
@@ -290,6 +312,7 @@ final class PickSession {
     private func rebuild(keeping emoji: Emoji? = nil) {
         var newItems: [Emoji] = []
         var newLines: [Line] = []
+        var newMostUsed: Range<Int>?
         func addSection(_ title: String, _ emojis: [Emoji]) {
             newLines.append(.title(title))
             let start = newItems.count
@@ -302,7 +325,11 @@ final class PickSession {
         /// there are no uses yet, so a right-click can still teach the word on the first day.
         func addMostUsed(allGroups: Bool) {
             let most = Search.mostUsed(in: catalog, you: store.you, limit: PickSession.mostUsedLimit)
-            if !most.isEmpty { addSection(PickSession.mostUsedTitle, most) }
+            if !most.isEmpty {
+                let start = newItems.count
+                addSection(PickSession.mostUsedTitle, most)
+                newMostUsed = start..<newItems.count
+            }
             if allGroups || most.isEmpty {
                 for group in groups { addSection(group.name, group.emojis) }
             }
@@ -325,6 +352,7 @@ final class PickSession {
         }
         items = newItems
         lines = newLines
+        mostUsedItems = newMostUsed
         if let emoji, let place = newItems.firstIndex(where: { $0.text == emoji.text }), firstSelection != nil {
             selection = place
         } else {

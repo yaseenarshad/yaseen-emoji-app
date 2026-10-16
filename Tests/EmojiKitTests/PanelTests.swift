@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import EmojiKit
 
-/// The search panel with no window (YAZ-2899): the session, the paste, the grid and the tones.
+/// The search panel with no window (YAZ-2899): the session, the paste, the grid, the tone and the menu.
 /// The fakes keep the clipboard, the keys and the clock, so no test posts a key or waits.
 @MainActor
 @Suite struct PanelTests {
@@ -70,10 +70,24 @@ import Testing
         #expect(rig.store.you.uses.count == 50)
     }
 
-    /// D12: an empty part of the panel drags it, but a click on the grid never does.
-    @Test func theGridNeverDragsThePanel() throws {
+    /// D14: the grid drags the panel itself, after a move of more than 4 points. A mouse-down alone
+    /// never moves the panel, so a click with no move still picks.
+    @Test func theGridDragsThePanelOnlyAfterAMove() throws {
         let rig = try PickRig()
         #expect(EmojiGridView(session: rig.session).mouseDownCanMoveWindow == false)
+        let start = NSPoint(x: 100, y: 100)
+        // Each row: the end of the move, and whether it is a drag.
+        let table: [(end: NSPoint, isDrag: Bool)] = [
+            (NSPoint(x: 100, y: 100), false),
+            (NSPoint(x: 104, y: 100), false),       // exactly 4 points: still a click
+            (NSPoint(x: 102.8, y: 102.8), false),   // about 3.96 points on a slant
+            (NSPoint(x: 102.9, y: 102.9), true),    // about 4.1 points on a slant
+            (NSPoint(x: 100, y: 95.9), true),
+            (NSPoint(x: 140, y: 60), true),
+        ]
+        for row in table {
+            #expect(EmojiGridView.isDrag(from: start, to: row.end) == row.isDrag, "\(row.end)")
+        }
     }
 
     @Test func shiftEnterKeepsThePanelOpen() throws {
@@ -235,36 +249,63 @@ import Testing
         #expect(session.selection == 0)
     }
 
-    /// The shown form (D9): the tone of this emoji, then the default tone, then yellow.
-    /// A pick of a tone form counts the base emoji.
+    /// The shown form (D9, D17): the default tone of Settings for an emoji that takes a tone, else the
+    /// emoji itself. Settings is the only tone choice. A pick of a tone form counts the base emoji.
     @Test func theShownFormOfAnEmoji() throws {
         let rig = try PickRig()
         let thumbs = try #require(Catalog.emoji("👍"))
         let rocket = try #require(Catalog.emoji("🚀"))
         #expect(rig.session.shown(thumbs) == "👍")
-        #expect(rig.session.toneChoices(for: thumbs) == ["👍", "👍🏻", "👍🏼", "👍🏽", "👍🏾", "👍🏿"])
-        #expect(rig.session.toneChoices(for: rocket).isEmpty)
 
         rig.prefs.defaultTone = "\u{1F3FD}"
         #expect(rig.session.shown(thumbs) == "👍🏽")
         #expect(rig.session.shown(rocket) == "🚀")
 
-        // The right-click tone of one emoji wins over the default. Yellow is a tone too.
-        rig.session.setTone("👍🏿", for: thumbs)
-        #expect(rig.session.shown(thumbs) == "👍🏿")
-        rig.session.setTone("👍", for: thumbs)
-        #expect(rig.session.shown(thumbs) == "👍")
-        rig.session.setTone("👍🏿", for: thumbs)
-
         rig.session.open()
         rig.session.setQuery("thumbs up")
         rig.session.enter(shift: false)
-        #expect(rig.clipboard.contents == .text("👍🏿"))
+        #expect(rig.clipboard.contents == .text("👍🏽"))
         #expect(rig.store.you.uses[You.key("👍")]?.count == 1)
         // "Your most used" shows the form with the tone.
         rig.session.open()
         #expect(rig.session.lines.first == .title(PickSession.mostUsedTitle))
-        #expect(rig.shownItems.first == "👍🏿")
+        #expect(rig.shownItems.first == "👍🏽")
+    }
+
+    /// The right-click menu (D15, D17): no tone forms. "Hide from Your most used" shows only for an
+    /// emoji in that section. The hide rebuilds the grid, the panel stays open, and the next emoji fills the place.
+    @Test func hideIsOnlyInYourMostUsed() throws {
+        let rig = try PickRig()
+        for emoji in Catalog.all.prefix(40) { rig.store.recordPick(emoji.text, query: "") }
+        let thumbs = try #require(Catalog.emoji("👍"))
+        rig.store.recordPick(thumbs.text, query: "")
+        rig.store.recordPick(thumbs.text, query: "")
+        rig.session.open()
+        let session = rig.session
+        let most = try #require(session.mostUsedItems)
+        #expect(most == 0..<36 && session.items.first == thumbs)
+        #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .hideFromMostUsed])
+        #expect(session.menuActions(at: 35).last == .hideFromMostUsed)
+        // The same 👍 in its group, below "Your most used".
+        let inGroup = try #require(session.items.indices.first { $0 >= 36 && session.items[$0] == thumbs })
+        #expect(session.menuActions(at: inGroup) == [.addWord, .copyOnly])
+        #expect(session.menuActions(at: session.items.count).isEmpty)
+        #expect(PickSession.MenuAction.hideFromMostUsed.title == "Hide from Your most used")
+        let before = Set(session.items[0..<36].map(\.text))
+
+        session.hideFromMostUsed(thumbs)
+        #expect(session.isOpen)
+        #expect(rig.panel.calls == ["show"])
+        #expect(session.mostUsedItems == 0..<36)
+        let after = Set(session.items[0..<36].map(\.text))
+        #expect(!after.contains(thumbs.text))
+        #expect(before.subtracting([thumbs.text]).isSubset(of: after) && after.subtracting(before).count == 1)
+
+        // A search result has no hide item, and the search still finds 👍.
+        session.setQuery("thumbs up")
+        #expect(session.mostUsedItems == nil)
+        #expect(session.items.first == thumbs)
+        #expect(session.menuActions(at: 0) == [.addWord, .copyOnly])
     }
 
     /// "Add a word…" (D4): with a search it adds the search text. With an empty search the box asks for the word.
