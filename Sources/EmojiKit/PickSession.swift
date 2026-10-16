@@ -171,28 +171,31 @@ final class PickSession {
 
     /// Puts the emoji with the blue box into the app in front (D2), and learns the search text (D4).
     /// With no blue box (no results), it does nothing (D8).
+    /// The paste starts before the save: with a full `you.json` (5,000 learned pairs)
+    /// the save takes about 23 ms in a release build, and the panel must not wait for it.
     func pick(stayOpen: Bool) {
         guard let emoji = selectedEmoji else { return }
         let text = shown(emoji)
-        store.recordPick(text, query: query)
+        let query = self.query
         let paste = paster.willPaste(prefs.pickMode)
-        if stayOpen {
-            // The learned word can move the emoji up. The blue box stays on the same emoji.
-            rebuild(keeping: emoji)
-            panel?.reload()
-            guard paste else {
-                paster.deliver(text, paste: false)
-                return
-            }
+        guard stayOpen else {
+            close()
+            paster.deliver(text, paste: paste)
+            store.recordPick(text, query: query)
+            return
+        }
+        if paste {
             panel?.stepAside()
             paster.deliver(text, paste: true) { [weak self] in
                 guard let self, self.isOpen else { return }
                 self.panel?.comeBack()
             }
         } else {
-            close()
-            paster.deliver(text, paste: paste)
+            paster.deliver(text, paste: false)
         }
+        store.recordPick(text, query: query)
+        // The list does not move while the panel stays open, so the blue box stays where you
+        // look. The new use and the learned word change the order the next time.
     }
 
     /// ⌘C and the right-click "Copy only": the emoji goes on the clipboard, and the panel closes (D8).
@@ -200,9 +203,10 @@ final class PickSession {
     func copyOnly() {
         guard let emoji = selectedEmoji else { return }
         let text = shown(emoji)
-        store.recordPick(text, query: query)
+        let query = self.query
         close()
         paster.deliver(text, paste: false)
+        store.recordPick(text, query: query)
     }
 
     // MARK: Skin tones (D9)
@@ -293,12 +297,12 @@ final class PickSession {
                 newLines.append(.cells(rowStart..<min(rowStart + PickSession.columns, newItems.count)))
             }
         }
-        func addMostUsedOrGroups() {
+        /// "Your most used", then the groups. With `allGroups` false, the groups come only when
+        /// there are no uses yet, so a right-click can still teach the word on the first day.
+        func addMostUsed(allGroups: Bool) {
             let most = Search.mostUsed(in: catalog, you: store.you, limit: PickSession.mostUsedLimit)
-            if !most.isEmpty {
-                addSection(PickSession.mostUsedTitle, most)
-            } else {
-                // No uses yet: all groups, so a right-click can still teach the word.
+            if !most.isEmpty { addSection(PickSession.mostUsedTitle, most) }
+            if allGroups || most.isEmpty {
                 for group in groups { addSection(group.name, group.emojis) }
             }
         }
@@ -306,14 +310,12 @@ final class PickSession {
         let text = Search.normalize(query)
         var firstSelection: Int? = 0
         if text.isEmpty {
-            let most = Search.mostUsed(in: catalog, you: store.you, limit: PickSession.mostUsedLimit)
-            if !most.isEmpty { addSection(PickSession.mostUsedTitle, most) }
-            for group in groups { addSection(group.name, group.emojis) }
+            addMostUsed(allGroups: true)
         } else {
             let results = Search.results(for: query, in: catalog, you: store.you)
             if results.isEmpty {
                 newLines.append(.title(PickSession.noMatchTitle(query.trimmingCharacters(in: .whitespaces))))
-                addMostUsedOrGroups()
+                addMostUsed(allGroups: false)
                 // Enter with no results does nothing (D8).
                 firstSelection = nil
             } else {

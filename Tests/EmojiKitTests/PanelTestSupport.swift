@@ -21,12 +21,21 @@ final class MemoryDefaults: UserDefaults {
     override func removeObject(forKey defaultName: String) { values[defaultName] = nil }
 }
 
+extension ClipboardContents {
+    /// One text item, as the app writes an emoji.
+    static func text(_ text: String) -> ClipboardContents {
+        ClipboardContents(items: [Item(values: [(NSPasteboard.PasteboardType.string.rawValue, Data(text.utf8))])])
+    }
+}
+
 /// A clipboard in memory. `changeCount` goes up at each change, as on macOS.
 @MainActor
 final class FakeClipboard: Clipboard {
     private(set) var contents: ClipboardContents
     private(set) var changeCount = 100
     private(set) var restores = 0
+    /// True when the last write of the app was only for a paste.
+    private(set) var lastWriteIsTransient = false
 
     init(_ contents: ClipboardContents) {
         self.contents = contents
@@ -34,8 +43,9 @@ final class FakeClipboard: Clipboard {
 
     func read() -> ClipboardContents { contents }
 
-    func write(_ text: String) -> Int {
+    func write(_ text: String, transient: Bool) -> Int {
         contents = .text(text)
+        lastWriteIsTransient = transient
         changeCount += 1
         return changeCount
     }

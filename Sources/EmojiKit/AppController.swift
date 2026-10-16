@@ -155,6 +155,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         store.load()
         if let bad = store.movedBadFile {
             log.error("you.json could not be read. It is now \(bad.lastPathComponent, privacy: .public).")
+        } else if let error = store.saveError {
+            // The bad file could not move away. The app keeps it and saves no change.
+            log.error("you.json could not be read or moved. No change is saved: \(String(describing: error), privacy: .public)")
         }
         askForAccessibilityAtFirstLaunch()
 

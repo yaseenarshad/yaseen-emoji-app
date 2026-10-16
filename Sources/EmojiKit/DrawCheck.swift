@@ -34,14 +34,10 @@ public enum DrawCheck {
     }
 
     /// The emojis of `emojis` that this Mac can draw, in the same order. A pure function, so a test
-    /// can give it a list. It takes about 20 ms for the full catalog on the Mac of Yaseen, so the app calls `drawableOffMain`.
+    /// can give it a list. It takes about 20 ms for the full catalog on the Mac of Yaseen, so the app
+    /// calls it off the main thread, in `AppController.loadCatalog`.
     public static func drawable(_ emojis: [Emoji]) -> [Emoji] {
         let font = CTFontCreateWithName(fontName as CFString, 32, nil)
         return emojis.filter { canDraw($0.text, font: font) }
-    }
-
-    /// `drawable(_:)` on a background thread. The app calls it one time at launch.
-    public static func drawableOffMain(_ emojis: [Emoji]) async -> [Emoji] {
-        await Task.detached(priority: .userInitiated) { drawable(emojis) }.value
     }
 }
