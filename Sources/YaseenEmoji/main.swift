@@ -25,4 +25,10 @@ if let flag = arguments.firstIndex(of: "--import-uses") {
     }
 }
 
+// `YaseenEmoji --add-media <file> [<file> …] [--words "<words>"]`: adds GIFs and memes for the demo of the
+// panel, before the add window (YAZ-2925). The app must not run. It prints one line for each file and exits.
+if let flag = arguments.firstIndex(of: "--add-media") {
+    exit(AddCommand.runAndWait(Array(arguments[(flag + 1)...])))
+}
+
 AppController.main()

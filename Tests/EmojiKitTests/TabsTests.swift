@@ -260,4 +260,37 @@ import Testing
         #expect(Search.ranked(for: "party", in: entries, you: you).first?.key == entries[1_999].key)
         #expect(worst < 100)
     }
+
+    /// The demo command `--add-media` (YAZ-2925): it adds into this Mac's list and `gifs/` or `memes/` of the
+    /// preferences folder of the prefs. With no words, the words come from the file name. Fake prefs and a temp folder.
+    @Test func theDemoCommandAddsGIFsAndMemes() async throws {
+        let folder = try TempFolder()
+        let gif = folder.url.appendingPathComponent("party.gif")
+        try makeTestImage(width: 40, height: 30, type: .gif, frames: 2).write(to: gif)
+        let meme = folder.url.appendingPathComponent("Happy-Dance_2024.png")
+        try makeTestImage(width: 60, height: 40, type: .png).write(to: meme)
+        let text = folder.url.appendingPathComponent("notes.txt")
+        try Data("hi".utf8).write(to: text)
+        var lines: [String] = []
+        let defaults = MemoryDefaults()
+        func run(_ arguments: [String]) async -> Int32 {
+            await AddCommand.run(arguments, defaults: defaults, defaultFolder: folder.defaultFolder,
+                                 computerName: { "Test Mac" }) { lines.append($0) }
+        }
+        #expect(await run([]) == 2 && lines == [AddCommand.usage])
+        #expect(await run([gif.path, "--words", "Dance  party"]) == 0)
+        #expect(await run([meme.path, text.path]) == 1)
+        #expect(lines.count == 4 && lines[3].hasPrefix("notes.txt: ") && lines[3].hasSuffix(MediaImport.wrongTypeText))
+
+        let library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
+                                   mediaFolder: folder.defaultFolder, trash: FakeTrash(folder: folder.url))
+        library.load()
+        #expect(library.items(.gif).map(\.words) == [["dance", "party"]])
+        #expect(library.items(.meme).map(\.words) == [["happy", "dance"]])
+        #expect(library.missing.isEmpty && library.items.allSatisfy { library.fileURL(of: $0) != nil })
+        #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("gifs")).count == 1)
+        // The same file again: "Already there", and the new words are added.
+        #expect(await run([gif.path, "--words", "yay"]) == 0)
+        #expect(lines.last?.hasPrefix("Already there: GIF") == true)
+    }
 }
