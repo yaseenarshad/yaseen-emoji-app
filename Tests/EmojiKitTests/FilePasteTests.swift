@@ -94,7 +94,7 @@ import UniformTypeIdentifiers
         rig.session.open()
         rig.session.select(tab: .gifs)
         rig.session.enter(shift: true)
-        #expect(rig.session.isOpen && rig.panel.calls.last == "stepAside")
+        #expect(rig.session.isOpen && rig.panel.calls.last == "makeWay")
         rig.later.runAll()
         // The clipboard before the paste was the copied GIF. It comes back.
         #expect(rig.panel.calls.last == "comeBack" && rig.clipboard.restores == 1)

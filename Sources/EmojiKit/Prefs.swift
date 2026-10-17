@@ -100,6 +100,7 @@ final class Prefs {
         static let mediaFolder = "yaseenEmoji.mediaFolder"
         static let macName = "yaseenEmoji.macName"
         static let settingsPage = "yaseenEmoji.settingsPage"
+        static let pasteStrategy = "yaseenEmoji.pasteStrategy"
 
         static func klipy(_ kind: ItemKind) -> String { kind == .gif ? klipyGIFs : klipyMemes }
         /// `yaseenEmoji.pickMode.emoji` and so on: the key of one kind (D16 of YAZ-2919).
@@ -135,6 +136,12 @@ final class Prefs {
     var afterEnter: AfterEnter {
         get { (defaults.object(forKey: Key.afterEnter) as? String).flatMap(AfterEnter.init(rawValue:)) ?? .stayOpen }
         set { defaults.set(newValue.rawValue, forKey: Key.afterEnter) }
+    }
+
+    /// The way a pick that stays open gives the keyboard to the app in front (D21 of YAZ-2919). A hidden pref: no
+    /// Settings row, and it does not sync. Yaseen sets it with `defaults write`. The start value is `handBack`.
+    var pasteStrategy: PasteStrategy {
+        PasteStrategy(pref: defaults.object(forKey: Key.pasteStrategy) as? String)
     }
 
     /// "When you press Enter" of one kind (D16 of YAZ-2919). A kind with no value of its own uses the one

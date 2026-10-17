@@ -60,7 +60,7 @@ import UniformTypeIdentifiers
         rig.session.open()
         rig.session.select(tab: .gifs)
         rig.session.enter(shift: true)
-        #expect(rig.session.isOpen && rig.panel.calls.last == "stepAside")
+        #expect(rig.session.isOpen && rig.panel.calls.last == "makeWay")
         rig.later.runAll()
         #expect(rig.panel.calls.last == "comeBack" && rig.keys.sent.count == 2)
         #expect(rig.clipboard.contents == kept && rig.clipboard.restores == 0)

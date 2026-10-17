@@ -104,11 +104,11 @@ import Testing
         #expect(rig.session.emojis == before.items && rig.session.selection == before.selection)
         #expect(rig.session.query == "thumb")
         #expect(rig.session.selectedEmoji?.text == "👍")
-        #expect(rig.panel.calls == ["show", "stepAside"])
+        #expect(rig.panel.calls == ["show", "makeWay"])
 
         rig.later.advance(by: Paster.postDelay + Paster.comeBackDelay)
         #expect(rig.keys.sent.count == 1)
-        #expect(rig.panel.calls == ["show", "stepAside", "comeBack"])
+        #expect(rig.panel.calls == ["show", "makeWay", "comeBack"])
 
         // A second pick before the first restore.
         try rig.select("👎")
