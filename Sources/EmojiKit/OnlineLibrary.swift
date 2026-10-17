@@ -7,8 +7,6 @@ struct OnlineItem: Equatable, Sendable, Identifiable {
     /// The KLIPY slug, for example `hello-hi-662`. It is the `klipyID` of D3 and D7,
     /// because the items call of KLIPY takes slugs, not the number ID.
     let id: String
-    /// KLIPY's number ID. The app does not need it today.
-    let number: Int?
     let kind: ItemKind
     let title: String
     /// The small still picture of the tile: `sm.jpg` of a GIF, `sm.png` of a meme.
@@ -34,7 +32,7 @@ struct OnlineItem: Equatable, Sendable, Identifiable {
 extension OnlineItem {
     /// The item of a card (D18 of YAZ-2919): the tile shows at once, with no request.
     init(card: KlipyCard) {
-        self.init(id: card.slug, number: nil, kind: card.kind, title: card.title, still: card.still, preview: card.preview,
+        self.init(id: card.slug, kind: card.kind, title: card.title, still: card.still, preview: card.preview,
                   file: card.file,
                   fileType: UTType(card.fileType) ?? UTType(filenameExtension: card.fileExtension) ?? .data,
                   fileExtension: card.fileExtension, width: card.width, height: card.height, bytes: card.bytes)
@@ -266,22 +264,17 @@ struct KlipyRaw: Decodable {
         let size: Int?
     }
 
-    let number: Int?
     let slug: String
     let title: String?
     /// size (`hd`, `md`, `sm`, `xs`) → format (`gif`, `jpg`, `png`, …) → the file.
     let file: [String: [String: Lenient<Format>]]
 
     enum CodingKeys: String, CodingKey {
-        case number = "id"
         case slug, title, file
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // KLIPY sends the ID as a number. A text ID also works.
-        number = (try? container.decodeIfPresent(Int.self, forKey: .number))
-            ?? (try? container.decodeIfPresent(String.self, forKey: .number)).flatMap { Int($0) }
         slug = try container.decode(String.self, forKey: .slug)
         title = try? container.decodeIfPresent(String.self, forKey: .title)
         file = try container.decode([String: [String: Lenient<Format>]].self, forKey: .file)
@@ -314,7 +307,6 @@ struct KlipyRaw: Decodable {
         guard let paste, let type = UTType(filenameExtension: paste.format) else { return nil }
         return OnlineItem(
             id: slug,
-            number: number,
             kind: kind,
             title: title ?? "",
             still: still?.file.url ?? paste.file.url,

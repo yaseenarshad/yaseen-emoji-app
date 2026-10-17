@@ -203,8 +203,10 @@ final class AddModel: ObservableObject {
     private let prepare: (AddSource) async throws -> PreparedFile
     private let readText: (Data) async -> [String]
     private var nextID = 0
-    /// The work that runs: the prepares, the text reads and the adds. A test waits for it with `settle()`.
-    private var work: [Task<Void, Never>] = []
+    /// The work that runs: the prepares, the text reads and the adds. A task leaves the list when it ends.
+    /// A test waits for it with `settle()`.
+    private var work: [Int: Task<Void, Never>] = [:]
+    private var nextWork = 0
 
     init(library: LibraryStore,
          prepare: @escaping (AddSource) async throws -> PreparedFile = AddModel.prepare,
@@ -214,7 +216,7 @@ final class AddModel: ObservableObject {
         self.readText = readText
     }
 
-    /// The work of 1B, off the main thread (D5).
+    /// `MediaImport.prepare` of a file or of the bytes of a paste, off the main thread (D5).
     nonisolated static func prepare(_ source: AddSource) async throws -> PreparedFile {
         switch source {
         case .file(let url): return try await MediaImport.prepare(url)
@@ -233,7 +235,7 @@ final class AddModel: ObservableObject {
             let id = nextID
             nextID += 1
             rows.append(AddRow(id: id, source: source))
-            work.append(Task { [weak self] in await self?.prepareRow(id, source) })
+            track { [weak self] in await self?.prepareRow(id, source) }
         }
     }
 
@@ -285,7 +287,7 @@ final class AddModel: ObservableObject {
         guard let row = row(id), row.state == .ready, row.existing == nil else { return }
         change(id) { $0.kind = kind }
         if kind == .meme, !row.wasRead, let bytes = row.file?.bytes {
-            work.append(Task { [weak self] in await self?.read(id, bytes) })
+            track { [weak self] in await self?.read(id, bytes) }
         }
     }
 
@@ -314,7 +316,7 @@ final class AddModel: ObservableObject {
     /// first in "Your GIFs" or "Your memes". A duplicate adds only its new words, and a new title that is not empty.
     func add(row id: Int) {
         guard let row = row(id), row.state == .ready, !row.isAdding, let file = row.file else { return }
-        let words = AddModel.words(in: row.words)
+        let words = Item.words(typed: row.words)
         guard !words.isEmpty else {
             change(id) { $0.problem = AddModel.needsWordText }
             return
@@ -328,7 +330,7 @@ final class AddModel: ObservableObject {
         // `LibraryStore` is not safe for two threads, and the panel reads it on the main thread.
         // Thus only the write of the file runs off the main thread.
         let target = library.place(of: file, as: kind)
-        work.append(Task { [weak self] in
+        track { [weak self] in
             do {
                 if let target {
                     try await Task.detached(priority: .userInitiated) {
@@ -339,7 +341,7 @@ final class AddModel: ObservableObject {
             } catch {
                 self?.failAdd(id, error)
             }
-        })
+        }
     }
 
     private func finishAdd(_ id: Int, _ file: PreparedFile, kind: ItemKind, words: [String], title: String) {
@@ -359,11 +361,6 @@ final class AddModel: ObservableObject {
             row.isAdding = false
             row.problem = error.localizedDescription
         }
-    }
-
-    /// The text of the words box as words: split at spaces and commas, then the rules of the list (`Item.clean`).
-    static func words(in text: String) -> [String] {
-        Item.clean(text.split { $0.isWhitespace || $0 == "," }.map(String.init))
     }
 
     /// Finds the rows whose file is in the list already: two pastes of the same GIF, or a GIF of the list.
@@ -424,12 +421,20 @@ final class AddModel: ObservableObject {
         body(&rows[place])
     }
 
-    /// Waits for the work that runs, also the work that it starts. For the tests.
+    /// Runs `body` as one task of the work. The task leaves the list when it ends, so the list does not grow.
+    private func track(_ body: @escaping @MainActor () async -> Void) {
+        nextWork += 1
+        let id = nextWork
+        work[id] = Task { [weak self] in
+            await body()
+            self?.work[id] = nil
+        }
+    }
+
+    /// Waits for the work that runs, also the work that it starts, until the list is empty. For the tests.
     func settle() async {
         while !work.isEmpty {
-            let running = work
-            work = []
-            for task in running { await task.value }
+            for task in Array(work.values) { await task.value }
         }
     }
 
@@ -458,6 +463,18 @@ enum FileDrop {
             + PasteReader.byteTiers.joined().map { NSPasteboard.PasteboardType($0.identifier) }
     }
 
+    /// The temp folders of the files of promises: `$TMPDIR/YaseenEmoji-drop-<uuid>`.
+    nonisolated static let dropFolderPrefix = "YaseenEmoji-drop-"
+
+    /// Deletes the temp folders of the files of promises. The app calls it at quit: a row keeps the bytes of its file
+    /// after "Getting it ready…", so no row needs the file then. `temp` is a parameter, so a test gives a temp folder.
+    nonisolated static func cleanUp(in temp: URL = FileManager.default.temporaryDirectory) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? []
+        for name in names where name.hasPrefix(dropFolderPrefix) {
+            try? FileManager.default.removeItem(at: temp.appendingPathComponent(name))
+        }
+    }
+
     /// True when the drag has a form to add.
     static func accepts(_ info: NSDraggingInfo) -> Bool {
         let board = info.draggingPasteboard
@@ -471,7 +488,7 @@ enum FileDrop {
         if case .file = found.first { return done(found) }
         let promises = board.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver] ?? []
         guard !promises.isEmpty else { return done(found) }
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("YaseenEmoji-drop-\(UUID().uuidString)",
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(dropFolderPrefix + UUID().uuidString,
                                                                                    isDirectory: true)
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else {
             return done(found)
@@ -675,21 +692,14 @@ final class AddPanel: NSPanel {
         guard let combo = HotKeyCombo(keyDown: event) else { return super.performKeyEquivalent(with: event) }
         let command = NSEvent.ModifierFlags.command
         switch (Int(combo.keyCode), combo.modifiers) {
-        case (kVK_ANSI_V, command): return onPaste() || send(#selector(NSText.paste(_:)))
+        case (kVK_ANSI_V, command):
+            return onPaste() || EditKeys.send(combo, in: self) == true
         case (kVK_ANSI_W, command):
             performClose(nil)
             return true
-        case (kVK_ANSI_C, command): return send(#selector(NSText.copy(_:)))
-        case (kVK_ANSI_X, command): return send(#selector(NSText.cut(_:)))
-        case (kVK_ANSI_A, command): return send(#selector(NSText.selectAll(_:)))
-        case (kVK_ANSI_Z, command): return send(Selector(("undo:")))
-        case (kVK_ANSI_Z, [.command, .shift]): return send(Selector(("redo:")))
-        default: return super.performKeyEquivalent(with: event)
+        default:
+            return EditKeys.send(combo, in: self) ?? super.performKeyEquivalent(with: event)
         }
-    }
-
-    private func send(_ action: Selector) -> Bool {
-        firstResponder?.tryToPerform(action, with: self) ?? false
     }
 }
 

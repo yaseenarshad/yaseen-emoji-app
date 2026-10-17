@@ -1,20 +1,22 @@
 import AppKit
 
-/// `YaseenEmoji --add-media <file> [<file> …] [--words "<words>"]`: adds GIFs and memes from the Terminal, for the
-/// demo of the panel before the add window of subissue 3 (D5 and D12 of YAZ-2919). It uses the same parts as the
-/// add window: `MediaImport.prepare`, then `LibraryStore.add`. It prints one line for each file, and shows no window.
+/// `YaseenEmoji --add-media <file> [<file> …] [--words "<words>"]`: adds many GIFs and memes at once from the Terminal
+/// or a script (Yaseen added 15 memes with it on 16 Oct 2026). It uses the same steps and rules as the add window
+/// (D5, D8, D12, D15 of YAZ-2919): `MediaImport.prepare`, the words, the title from the file name, then
+/// `LibraryStore.add`. It prints one line for each file, and shows no window.
 public enum AddCommand {
     public static let usage = "Usage: YaseenEmoji --add-media <file> [<file> …] [--words \"<word> <word>\"]"
     public static let appRunsText = "Quit Yaseen Emoji first. The app keeps its own list and would write over the new items."
 
     /// The files and the words of the arguments after `--add-media`. Nil when no file is given.
+    /// The words follow the rule of the words box of the add window (`Item.words(typed:)`).
     static func parse(_ arguments: [String]) -> (files: [URL], words: [String])? {
         var files: [URL] = []
         var words: [String] = []
         var rest = arguments[...]
         while let next = rest.popFirst() {
             if next == "--words" {
-                words += (rest.popFirst() ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                words += Item.words(typed: rest.popFirst() ?? "")
             } else {
                 files.append(URL(fileURLWithPath: (next as NSString).expandingTildeInPath))
             }
@@ -68,11 +70,15 @@ public enum AddCommand {
                 var words = given
                 if words.isEmpty, prepared.kind == .meme { words = await MediaImport.readText(in: prepared.bytes) }
                 if words.isEmpty { words = AddCommand.words(fromName: file) }
-                let result = try library.add(prepared, words: words)
+                // A new item gets the title of the add window (D15): the file name. An item that is there keeps its title.
+                let title = library.item(prepared.id) == nil
+                    ? AddSource.title(fromName: file.deletingPathExtension().lastPathComponent) : ""
+                let result = try library.add(prepared, words: words, title: title)
                 let kind = result.item.kind == .gif ? "GIF" : "meme"
                 let verb: String
                 if case .alreadyThere = result { verb = "Already there:" } else { verb = "Added" }
-                say("\(verb) \(kind) \(result.item.id) from \(file.lastPathComponent), words: \(result.item.words.joined(separator: ", "))")
+                say("\(verb) \(kind) \(result.item.id) from \(file.lastPathComponent), title: \(result.item.title), "
+                    + "words: \(result.item.words.joined(separator: ", "))")
             } catch {
                 say("\(file.lastPathComponent): \(error.localizedDescription)")
                 code = 1

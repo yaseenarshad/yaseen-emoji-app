@@ -55,7 +55,6 @@ import UniformTypeIdentifiers
         #expect(page.hasMore)
         #expect(page.items.map(\.id) == ["hello-hi-662", "shaq-dance"])
         let hello = try #require(page.items.first)
-        #expect(hello.number == 8041071659142944)
         #expect(hello.kind == .gif)
         #expect(hello.title == "Hello")
         #expect(hello.still == network.mediaURL("hello/sm.jpg"))
@@ -326,7 +325,7 @@ import UniformTypeIdentifiers
         let clock = Locked(start)
         let files = PasteFiles(cache: folder.url, session: network.session, now: { clock.value })
 
-        let item = OnlineItem(id: "hello-hi-662", number: 1, kind: .gif, title: "Hello",
+        let item = OnlineItem(id: "hello-hi-662", kind: .gif, title: "Hello",
                               still: network.mediaURL("sm.jpg"), preview: nil, file: network.mediaURL("md.gif"),
                               fileType: .gif, fileExtension: "gif", width: 498, height: 498, bytes: nil)
         let first = try await files.download(item)
@@ -359,7 +358,7 @@ import UniformTypeIdentifiers
         let folder = try TempFolder()
         let network = StubNetwork { _ in .fail(.timedOut) }
         let files = PasteFiles(cache: folder.url, session: network.session)
-        let item = OnlineItem(id: "x", number: nil, kind: .meme, title: "", still: network.mediaURL("s.png"), preview: nil,
+        let item = OnlineItem(id: "x", kind: .meme, title: "", still: network.mediaURL("s.png"), preview: nil,
                               file: network.mediaURL("x.png"), fileType: .png, fileExtension: "png", width: 1, height: 1, bytes: nil)
 
         await #expect(throws: OnlineError.unreachable) { try await files.download(item) }

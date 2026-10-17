@@ -150,18 +150,27 @@ KLIPY key in Settings. Without a key, the app sends nothing to KLIPY.
 - **What the app sends:** the search text, the page number, and your key, to
   `https://api.klipy.com/api/v1/<key>/gifs/search`, `.../static-memes/search`,
   `.../gifs/items` and `.../static-memes/items`. It sends no user ID and asks for no ads.
-- **What the app gets:** the GIFs and memes of KLIPY, from `static.klipy.com`, with
-  the URLs exactly as KLIPY gives them. The search results stay in memory only. A pick
-  downloads one temp file into `~/Library/Caches/Yaseen Emoji/paste/` for the paste.
-  The app deletes the temp files after 5 minutes and at quit.
-- **The KLIPY items that you use** (D18 of YAZ-2919, Yaseen's choice): each pick keeps
-  a card in your list (the KLIPY ID, the title, the URLs and the size) and moves the
-  paste file into `~/Library/Application Support/Yaseen Emoji/klipy/` on this Mac.
-  At most 50 files and 200 MB stay: the file used least recently goes first.
-  KLIPY's terms ask apps not to keep copies. The worst case is that KLIPY turns off the key.
+- **What the app gets:** the GIFs and memes of KLIPY, from KLIPY's media hosts
+  (`static.klipy.com` and others), with the URLs exactly as KLIPY gives them. The search
+  results and the tile pictures stay in memory only.
+- **The paste file:** the app downloads the file of a KLIPY item into
+  `~/Library/Caches/Yaseen Emoji/paste/` when the blue box stays 300 ms on its tile, at a
+  pick, for the big meme preview, and for "Save to your GIFs". The app deletes these temp
+  files after 5 minutes and at quit, unless a pick keeps the file (below).
+- **The KLIPY items that you use** (D18 of YAZ-2919, Yaseen's choice): each pick keeps two things.
+  - A card in your list `library-<Mac name>.json`: the KLIPY ID (the slug), the title, the
+    URLs, the size and the last use. The card syncs with the preferences folder, so it can
+    go into git. At most 2,000 cards stay in the list of each Mac.
+  - The file, on this Mac only: the pick moves the paste file into
+    `~/Library/Application Support/Yaseen Emoji/klipy/`. At most 50 files and 200 MB stay:
+    the file used least recently goes first. These files are never in the preferences folder,
+    so they never go into git.
+  - KLIPY's terms ask apps not to keep copies. Yaseen accepts the risk: the worst case is
+    that KLIPY turns off the key.
 - **"Save to your GIFs"** copies the file of a KLIPY item into your `gifs/` or `memes/`
-  folder, as your own item. The older builds kept only the KLIPY ID (the slug) of a saved
-  item. The app still shows and removes those items.
+  folder, as your own item. That copy syncs with the GIFs and memes folder, like a file that
+  you add. The older builds kept only the KLIPY ID (the slug) of a saved item. The app still
+  shows and removes those items.
 - **Attribution:** the search box says "Search KLIPY" when KLIPY results show, each
   KLIPY tile has a small "KLIPY" mark, and the results stay in their own section,
   "From KLIPY", in KLIPY's order. These follow the

@@ -461,8 +461,8 @@ final class SettingsModel: ObservableObject {
 
     // MARK: The KLIPY key (D2 and D14 of YAZ-2919)
 
-    /// The key row is locked when a key is saved (Yaseen, 16 Oct 2026: "this is such a laxidal way to accidently edit it").
-    /// Only "Save" (or Enter in the box) writes the key. A click outside or a close of the window changes nothing.
+    // The key row is locked when a key is saved (D14 update of YAZ-2919). Only "Save" (or Enter in the box) writes
+    // the key. A click outside the box or a close of the window changes nothing.
 
     /// "Change…": opens an empty box. The saved key stays until "Save".
     func startChangingKlipyKey() {

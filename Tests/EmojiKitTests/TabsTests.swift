@@ -305,9 +305,10 @@ import Testing
         #expect(worst < 100)
     }
 
-    /// The demo command `--add-media` (YAZ-2925): it adds into this Mac's list and `gifs/` or `memes/` of the
-    /// preferences folder of the prefs. With no words, the words come from the file name. Fake prefs and a temp folder.
-    @Test func theDemoCommandAddsGIFsAndMemes() async throws {
+    /// The bulk add `--add-media`: it adds into this Mac's list and `gifs/` or `memes/` of the preferences folder of
+    /// the prefs, with the rules of the add window. With no words, the words come from the file name. A new item gets
+    /// the title of its file name (D15 of YAZ-2919). Fake prefs and a temp folder.
+    @Test func theBulkAddCommandAddsGIFsAndMemes() async throws {
         let folder = try TempFolder()
         let gif = folder.url.appendingPathComponent("party.gif")
         try makeTestImage(width: 40, height: 30, type: .gif, frames: 2).write(to: gif)
@@ -322,7 +323,7 @@ import Testing
                                  computerName: { "Test Mac" }) { lines.append($0) }
         }
         #expect(await run([]) == 2 && lines == [AddCommand.usage])
-        #expect(await run([gif.path, "--words", "Dance  party"]) == 0)
+        #expect(await run([gif.path, "--words", "Dance,  party"]) == 0)
         #expect(await run([meme.path, text.path]) == 1)
         #expect(lines.count == 4 && lines[3].hasPrefix("notes.txt: ") && lines[3].hasSuffix(MediaImport.wrongTypeText))
 
@@ -331,10 +332,16 @@ import Testing
         library.load()
         #expect(library.items(.gif).map(\.words) == [["dance", "party"]])
         #expect(library.items(.meme).map(\.words) == [["happy", "dance"]])
+        #expect(library.items.map(\.title).sorted() == ["Happy Dance 2024", "party"])
         #expect(library.missing.isEmpty && library.items.allSatisfy { library.fileURL(of: $0) != nil })
         #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("gifs")).count == 1)
         // The same file again: "Already there", and the new words are added.
+        let gifID = try #require(library.items(.gif).first?.id)
+        library.setTitle("Party time", of: gifID)
         #expect(await run([gif.path, "--words", "yay"]) == 0)
         #expect(lines.last?.hasPrefix("Already there: GIF") == true)
+        library.load()
+        #expect(library.item(gifID)?.title == "Party time")
+        #expect(library.item(gifID)?.words == ["dance", "party", "yay"])
     }
 }

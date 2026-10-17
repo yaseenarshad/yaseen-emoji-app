@@ -20,16 +20,13 @@ final class KlipyResults: OnlineResults {
     static let searchesKept = 8
     /// The KLIPY items that stay known by their slug.
     static let itemsKept = 500
-    /// The still pictures in memory (D11 of YAZ-2919), and the moving pictures (D11 update on YAZ-2925).
-    static let stillsKept = 120
+    /// The moving pictures in memory (D11 update on YAZ-2925). The still pictures share the cache of `Thumbnails`.
     static let movingKept = 30
     /// The still pictures that load at the same time, and the moving pictures.
     static let stillsAtOnce = 4
     static let movingAtOnce = 4
     /// The most slugs in one items call. A normal lookup has fewer, so it is one call.
     static let slugsPerCall = 50
-    /// The side of a still picture in pixels: the same square as your own tiles (D5 of YAZ-2919).
-    nonisolated static let stillSide = 290
 
     typealias Download = @Sendable (OnlineItem) async throws -> URL
     typealias FetchPicture = @Sendable (URL) async throws -> Data
@@ -84,6 +81,7 @@ final class KlipyResults: OnlineResults {
 
     // MARK: The paste files (D6)
 
+    /// The downloaded paste file of each item, by `fileKey`. A pick moves its file into the kept files (D18).
     private var files: [String: URL] = [:]
     private var downloads: [String: (token: Int, task: Task<Void, Never>)] = [:]
     private var waiters: [String: [Int: @MainActor (URL?) -> Void]] = [:]
@@ -94,7 +92,8 @@ final class KlipyResults: OnlineResults {
 
     // MARK: The pictures
 
-    private let stills = NSCache<NSString, NSImage>()
+    /// The still pictures, by URL. In the app, the cache of `Thumbnails`: at most 120 stills of both kinds (D11).
+    private let stills: NSCache<NSString, NSImage>
     /// The `sm.gif` previews of the GIF tiles on the screen (D11 update on YAZ-2925).
     private let movings: MovingPictures
     private var stillsLoading: Set<URL> = []
@@ -105,7 +104,7 @@ final class KlipyResults: OnlineResults {
     private var stillItems: [URL: OnlineItem] = [:]
 
     init(library: OnlineLibrary, keys: KeyStore, later: Later, download: @escaping Download,
-         fetchPicture: @escaping FetchPicture, keptFiles: KlipyFiles? = nil,
+         fetchPicture: @escaping FetchPicture, keptFiles: KlipyFiles? = nil, stills: NSCache<NSString, NSImage>? = nil,
          sleep: @escaping SearchDebouncer.Sleep = { try await Task.sleep(for: $0) }) {
         self.library = library
         self.keys = keys
@@ -116,19 +115,24 @@ final class KlipyResults: OnlineResults {
         self.fetchPicture = fetch
         self.keptFiles = keptFiles
         debouncer = SearchDebouncer(sleep: sleep)
-        stills.countLimit = KlipyResults.stillsKept
+        self.stills = stills ?? {
+            let own = NSCache<NSString, NSImage>()
+            own.countLimit = Thumbnails.countLimit
+            return own
+        }()
         movings = MovingPictures(kept: KlipyResults.movingKept, atOnce: KlipyResults.movingAtOnce, load: fetch)
         isOn = keys.read() != nil
         movings.onLoad = { [weak self] in self?.onPicture() }
     }
 
     /// The app: KLIPY, the paste files and the pictures on one session with the 5 s time-out.
-    convenience init(keys: KeyStore, session: URLSession, pasteFiles: PasteFiles, keptFiles: KlipyFiles, later: Later,
+    convenience init(keys: KeyStore, session: URLSession, pasteFiles: PasteFiles, keptFiles: KlipyFiles,
+                     stills: NSCache<NSString, NSImage>, later: Later,
                      sleep: @escaping SearchDebouncer.Sleep = { try await Task.sleep(for: $0) }) {
         self.init(library: KlipyLibrary(keys: keys, session: session), keys: keys, later: later,
                   download: { try await pasteFiles.download($0) },
                   fetchPicture: { try await KlipyLibrary.fetch($0, session: session) },
-                  keptFiles: keptFiles, sleep: sleep)
+                  keptFiles: keptFiles, stills: stills, sleep: sleep)
     }
 
     /// Settings saved or removed the key. The key is only on this Mac (D2), so the app reads it only at the start
@@ -143,6 +147,8 @@ final class KlipyResults: OnlineResults {
 
     func refresh() {
         keptFiles?.reload()
+        // The 5-minute clean-up deleted these paste files. Their entries go, so the list does not grow.
+        files = files.filter { FileManager.default.fileExists(atPath: $0.value.path) }
         failedLookups = [:]
         failedPictures = []
         movings.retryFailed()
@@ -448,6 +454,9 @@ final class KlipyResults: OnlineResults {
         return keptFiles?.file(for: item.id) ?? preview
     }
 
+    /// The count of the paste files that this session knows. For a test.
+    var pasteFileCount: Int { files.count }
+
     /// The URLs of the previews whose load runs now. For a test.
     var movingLoads: Set<URL> { movings.loading }
 
@@ -484,7 +493,7 @@ final class KlipyResults: OnlineResults {
         stillsLoading.remove(url)
         let item = stillItems.removeValue(forKey: url)
         if let image {
-            let side = CGFloat(KlipyResults.stillSide) / 2
+            let side = CGFloat(MediaImport.thumbnailSide) / 2
             stills.setObject(NSImage(cgImage: image, size: NSSize(width: side, height: side)), forKey: url.absoluteString as NSString)
             onPicture()
         } else {
@@ -502,20 +511,10 @@ final class KlipyResults: OnlineResults {
         return await Task.detached(priority: .utility) { square(data) }.value
     }
 
-    /// The picture in `data`, cut to a square of `stillSide` pixels from its middle.
+    /// The picture in `data`, cut to the square of your own tiles (`MediaImport.square`).
     nonisolated static func square(_ data: Data) -> CGImage? {
-        let side = stillSide
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil), image.width > 0, image.height > 0,
-              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return nil }
-        let scale = max(CGFloat(side) / CGFloat(image.width), CGFloat(side) / CGFloat(image.height))
-        let width = CGFloat(image.width) * scale
-        let height = CGFloat(image.height) * scale
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(x: (CGFloat(side) - width) / 2, y: (CGFloat(side) - height) / 2, width: width, height: height))
-        return context.makeImage()
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return MediaImport.square(image)
     }
 }

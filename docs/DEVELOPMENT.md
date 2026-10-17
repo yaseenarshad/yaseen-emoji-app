@@ -64,31 +64,84 @@ The history and the synced settings are in the preferences folder. The default i
 - **A missing folder:** the app uses the default folder, and Settings shows "Can't find the preferences folder. This Mac uses its own history."
 - **The files:** sorted keys, one value on each line, atomic writes.
 
+### The files, the folders and the caches (v0.2)
+
+| Path | What | Syncs | Limit and clean-up |
+| - | - | - | - |
+| `<preferences folder>/you-<Mac name>.json` | The history and the synced settings of this Mac | Yes | 5,000 learned pairs |
+| `<preferences folder>/library-<Mac name>.json` | The list of GIFs and memes of this Mac, and the KLIPY cards (D3, D18 of YAZ-2919) | Yes | 2,000 cards: the least recently used card goes |
+| `<GIFs and memes folder>/gifs/<id>.gif` | Your GIF files (D4) | Yes | None. You delete a file in Finder |
+| `<GIFs and memes folder>/memes/<id>.<png, jpg or gif>` | Your meme files (D4) | Yes | The same |
+| `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png` | The 290 × 290 still picture of your tile (D5) | No | The app makes a missing one again. At each open, it deletes the still picture of each item that does not show |
+| `~/Library/Caches/Yaseen Emoji/paste/<uuid>/<slug>.<ext>` | The downloaded file of a KLIPY item (D6) | No | 5 minutes, and all at quit. A pick moves it into `klipy/` |
+| `~/Library/Application Support/Yaseen Emoji/klipy/<slug>.<ext>` | The files of the KLIPY items that you used (D18) | No, never | 50 files and 200 MB: the oldest last use goes. A `.part` file of a stopped move goes at the next open |
+| `$TMPDIR/YaseenEmoji-drop-<uuid>/` | The files of a drop from a browser or Telegram (file promises) | No | All at quit |
+| Keychain: service `com.yaseenarshad.yaseenemoji`, account `klipy` | The KLIPY key (D2) | No | "Remove…" in Settings |
+
+The "GIFs and memes folder" is the pref `yaseenEmoji.mediaFolder`. "" means the preferences folder itself. For Yaseen, that is `yaseen-os/Sync/yaseen-emoji`, so `gifs/` and `memes/` are in git. The KLIPY files of D18 are never in the preferences folder, so they are never in git (D18 update on YAZ-2919). Only their cards (small text) sync.
+
+The prefs of v0.2 in `UserDefaults` (all on this Mac only): `yaseenEmoji.mediaFolder`, `yaseenEmoji.settingsPage`, `yaseenEmoji.pickMode.<kind>`, `yaseenEmoji.keepOnClipboard.<kind>`, `yaseenEmoji.klipyGIFs`, `yaseenEmoji.klipyMemes`, and a `…ChangedAt` key for each synced value. `<kind>` is `emoji`, `gif` or `meme`.
+
 ### GIFs and memes (D3 and D4 of YAZ-2919)
 
-- **The list:** `library-<Mac name>.json` in the preferences folder, one file for each Mac, with the same Mac name as `you-<Mac name>.json`. For each `id`, the newest `changed` of all Macs wins. The same time: the delete wins. A remove keeps the item with `removed`, so a later add on any Mac can win.
-- **The files:** `gifs/<id>.<ext>` and `memes/<id>.<ext>` in the GIFs and memes folder. The pref `yaseenEmoji.mediaFolder` stays on each Mac. "" is the preferences folder. The `id` is the first 16 hex characters of the SHA-256 of the file, so two Macs that add the same GIF write the same file.
-- **Delete a GIF or meme:** right-click → "Show in Finder", then delete the file in Finder. The app has no "Move to Trash". At each open, `LibraryStore.reload()` lists `gifs/` and `memes/` one time each. An item with no file does not show in the panel, but it stays in the list. When the file comes back (a `git pull`), the item shows again at the next open.
-- **The title (D15 of YAZ-2919):** `title` of each item in `library-<Mac name>.json`, "" by default. A list file with no `title` (an earlier build) loads with "". The title syncs with the item: the newest `changed` wins. A title never changes the file name: the file keeps its code name `<id>.<ext>`. An earlier build on a different Mac writes its changed items with no title, so update all Macs.
-- **The counts and the learned words** stay in `you-<Mac name>.json`, with the keys `gif:<id>`, `meme:<id>` and `klipy:<klipyID>`.
-- **The still pictures:** `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png`, 290 × 290 pixels. They are not synced. The panel makes a missing one when its tile shows, and deletes it when the item is removed, on this Mac or on a different Mac.
-- **Settings → "GIFs and memes":** "Set GIFs and memes folder…" and "Reset to Same Folder…" (type "reset") call `LibraryStore.useMediaFolder(_:)`. "Set preferences folder…" and "Reset to Mac Default Folder…" also move `library-<Mac name>.json` (`LibraryStore.move(to:)`), and `gifs/` and `memes/` when the GIFs and memes folder is the preferences folder. If that file move fails, the files stay, and the GIFs and memes folder becomes the old folder.
+- **The list:** `library-<Mac name>.json` in the preferences folder, one file for each Mac, with the same Mac name as `you-<Mac name>.json`. Each Mac writes only its own file. The app reads the files of all Macs and combines them. `PreferencesFolder.isLibraryFile` takes only `library-<A-Z a-z 0-9 ->.json`, so `library-A.bad.json` and `library-A 2.json` never count. A bad file of this Mac moves to `library-<Mac name>.bad.json`. A bad file of a different Mac keeps its last good data.
+- **The format** (sorted keys, ISO 8601 dates with milliseconds, atomic writes through `MacFiles.save`). A field with no value is not in the file:
+
+  ```json
+  {
+    "cards" : {
+      "klipy:hello-hi-662" : {
+        "bytes" : 836000, "file" : "https://static.klipy.com/…/md.gif", "fileExtension" : "gif",
+        "fileType" : "com.compuserve.gif", "height" : 280, "kind" : "gif", "lastUsed" : "2026-10-16T23:51:42.187Z",
+        "preview" : "https://static.klipy.com/…/sm.gif", "slug" : "hello-hi-662", "still" : "https://static.klipy.com/…/sm.jpg",
+        "title" : "Hello", "width" : 498
+      }
+    },
+    "items" : {
+      "3fa9c1d2e8b04a77" : {
+        "added" : "2026-10-16T23:51:42.187Z", "changed" : "2026-10-17T01:02:03.004Z", "file" : "gifs/3fa9c1d2e8b04a77.gif",
+        "id" : "3fa9c1d2e8b04a77", "kind" : "gif", "title" : "midwit mba", "words" : ["dance", "party"]
+      }
+    }
+  }
+  ```
+
+  - `id`: the first 16 hex characters of the SHA-256 of the file. Two Macs that add the same GIF get the same `id` and the same file name, so git has no conflict. A KLIPY item that an earlier build saved by its slug (D7) has the `id` `klipy-<slug>`, a `klipyID` and no `file`.
+  - `klipyID` of your own file: the slug of the KLIPY item that "Save to your GIFs" copied (D18). Its card then does not show as a second tile.
+  - `removed`: the time of "Remove from your GIFs" of a saved KLIPY item (or of "Move to Trash" of an earlier build).
+  - `title` (D15): "" by default. A file of an earlier build with no `title` loads with "". A title never changes the file name.
+- **The combine rule:** for each `id`, the item with the newest `changed` wins. The same time: the delete wins. Then more words, then the larger text of the words, then the larger title, so each Mac selects the same item. A remove keeps the item with `removed`, so a later add on any Mac can win. For each card key, the card with the newest `lastUsed` wins.
+- **The keys in `you-<Mac name>.json`:** `gif:<id>` and `meme:<id>` for your own files, `klipy:<slug>` for a KLIPY item (`Item.key`, `KlipyCard.key`). The uses, the learned words, "Your most used", "Hide from Your most used" and "Forget learned words" work the same as for emojis. `You.key()` does not change these keys. The words of an item live in the item, not in `added`, so "Forget learned words" keeps them.
+- **Delete a GIF or meme:** right-click → "Show in Finder", then delete the file in Finder. The app has no "Move to Trash", and it never deletes a file of `gifs/` or `memes/`. At each open, `LibraryStore.reload()` lists `gifs/` and `memes/` one time each (`LibraryStore.missing`). An item with no file does not show in the panel, but it stays in the list. When the file comes back (a `git pull`), the item shows again at the next open.
+- **A missing GIFs and memes folder** (an unmounted drive): your items do not show, the GIFs and Memes tabs show "Can't find the GIFs and memes folder.", and KLIPY still works. An add does not make a new folder in its place.
+- **The still pictures:** `Thumbnails` makes a missing still picture when its tile shows, and decodes it off the main thread, at most 4 at a time. One `NSCache` of 120 keeps the stills of your tiles and of the KLIPY tiles (D11: about 41 MB). At each open, `Thumbnails.removeStills(keeping:)` deletes the still picture of each item that does not show (removed, or its file is gone). It skips this while the GIFs and memes folder is missing.
+- **Settings → "GIFs and memes":** "Set GIFs and memes folder…" and "Reset to Same Folder…" (type "reset") call `LibraryStore.useMediaFolder(_:)`: copy, check the size and the SHA-256 of each file, then remove the old copies. A failure keeps the old files and the old folder. "Set preferences folder…" and "Reset to Mac Default Folder…" also move `library-<Mac name>.json` (`LibraryStore.move(to:)`), and `gifs/` and `memes/` when the GIFs and memes folder is the preferences folder. If that file move fails, the files stay, and the GIFs and memes folder becomes the old folder. The move runs on the main thread today, so a large folder makes Settings wait.
 
 ### KLIPY (D1, D2, D7, D18 of YAZ-2919)
 
-- **The key:** Settings → "KLIPY key". With no key: the box, "Save" and "Get a free key". "Save" or Enter in the box saves it into this Mac's Keychain (service `com.yaseenarshad.yaseenemoji`, account `klipy`). An empty box saves nothing ("Paste a key first."). A saved key is locked: the row shows "Saved", "Change…" and "Remove…". "Change…" opens an empty box with "Save" and "Cancel". "Remove…" asks you to type "remove". A click outside the box or a close of the window changes nothing. ⌘V works in the box: the settings window gives the edit keys to the box, because the app has no main menu.
-- **The switches:** Settings → "Search KLIPY in GIFs" (on at the start) and "Search KLIPY in Memes" (off at the start). They sync (D16). A tab with its switch off sends no request and shows no "From KLIPY" and no grey KLIPY line. Its placeholder is "Search your GIFs" or "Search your memes". Its saved and learned KLIPY items do not show, but they stay in the list and the history. `PickSession` asks KLIPY only through `klipy(kind)`, which is nil when the switch is off.
-- **The search:** 350 ms after the last key, 24 a page, the next page near the end of the grid, at most 96, in KLIPY's order, in "From KLIPY" below "Yours". The last 8 searches stay in memory. A failed search gives one grey line, and the next open tries again.
-- **Saved and learned items:** "Yours" shows the saved KLIPY items and the KLIPY items that you picked for this text. The app gets the unknown slugs of one grid in one `items` call for each kind, and keeps at most 500 items in memory. An item that KLIPY deleted drops with no line.
-- **The items that you use (D18 of YAZ-2919):** each pick of a KLIPY GIF or meme (Enter, a click, Shift+Enter, Copy only) keeps two things.
-  - **A card** in `library-<Mac name>.json`, in `cards`, keyed by `klipy:<slug>`: `slug`, `kind`, `title`, the `still`, `preview` and `file` URLs, `fileType`, `fileExtension`, `width`, `height`, `bytes` and `lastUsed`. For each key, the newest `lastUsed` of all Macs wins. This Mac's file keeps at most 2,000 cards: a write drops the least recently used card. A list file with no `cards` (an earlier build) loads, and a card that cannot be read is skipped.
-  - **The file**, on this Mac only: `~/Library/Application Support/Yaseen Emoji/klipy/<slug>.<ext>` (`KlipyFiles`, `AppParts.klipyFolder`). The pick moves the paste file that it downloaded there before the paste, so the clipboard gets the kept file and nothing downloads two times. The move goes to a hidden `.part` name in the folder, then one rename. The modification date of a file is its last use on this Mac. After each pick: at most 50 files and 200 MB, the oldest last use goes first, and the file of the pick stays. The panel lists the folder one time at each open.
-  - **The tiles:** a card gives its tile with no lookup (`OnlineResults.item(for:)`). The still and the moving picture come from the kept file when this Mac has it, else from the card URLs. A still that fails asks KLIPY for the slug one time. If KLIPY deleted the item and this Mac has no file, the tile does not show, and the card stays. A kept file pastes at once, with no prefetch and no wait.
-  - **Where cards show:** "Your most used", and "Yours" for their learned words and their title. Not in "Your GIFs" / "Your memes" with no search, and not in "All your GIFs" / "All your memes" (your own and saved items only). With the KLIPY switch of the tab off, no card shows.
-  - **The migration:** a KLIPY item with uses, learned words or a save of an earlier build, but no card, gets its card at the first lookup that succeeds, with the last use of `you-<Mac name>.json` (a saved item: the time of the save). Its file comes at the next pick.
-- **"Save to your GIFs" / "Save to your memes" (D18):** copies the kept file, else the paste file (a download, with the 3 s wait), into `gifs/` or `memes/` with the steps of the add window: `MediaImport.prepare`, the write off the main thread, then `LibraryStore.add` with KLIPY's title, the search text as the word, and the slug in `klipyID`. The item is your own file (its key stays `gif:<id>`), and it syncs like a meme. The card stays, but it does not show as a second tile while your item has its file. A KLIPY item that an earlier build saved by its slug (D7) keeps "Remove from your GIFs".
-- **The paste:** a kept file of D18 pastes at once. Else the paste file downloads when the blue box sits on a KLIPY tile for 300 ms. Enter waits up to 3 s with "Getting the GIF…". The file goes into `~/Library/Caches/Yaseen Emoji/paste/<uuid>/`. The app deletes the files older than 5 minutes at each open of the panel and each minute, and all of them at quit.
-- **The pictures** of KLIPY tiles stay in memory only (120 stills, 30 moving `sm.gif` previews, or the kept file of D18). The moving previews of the tiles on the screen load at most 4 at a time, in the order of the grid.
+**The rules of KLIPY for the code** (docs.klipy.com, read on 16 Oct 2026). Keep them in each change:
+
+- The placeholder of the GIFs and Memes tabs is exactly "Search KLIPY" when the tab searches KLIPY. With the switch of the tab off, or with no key: "Search your GIFs" or "Search your memes" (`PickSession.placeholder`).
+- "From KLIPY" keeps KLIPY's order and composition. Do not sort, filter, insert into or mix this section. Your own items go in their own section, "Yours", above it. `PickSession.buildTiles` adds `OnlineSection.items` as they come.
+- Each KLIPY tile has the "KLIPY" mark (`EmojiGridView.drawMark`).
+- Use the media URLs exactly as KLIPY gives them (`OnlineItem`, `KlipyCard`). Do not change their parameters.
+- The requests come from the app on the Mac. No proxy. The app sends no user ID and asks for no ads.
+- Copies of KLIPY files: KLIPY's terms ask apps not to keep copies. The app keeps the paste file of D6 for 5 minutes, and the 50 files of D18. **D18 is a risk that Yaseen accepts**: the worst case is that KLIPY turns off the key. Do not add a different copy or cache of KLIPY files without a new decision.
+
+**The parts:**
+
+- **The key:** Settings → "KLIPY key". With no key: the box, "Save" and "Get a free key" (`https://partner.klipy.com/`). "Save" or Enter in the box saves it into this Mac's Keychain (`KeychainKeyStore`). An empty box saves nothing ("Paste a key first."). A saved key is locked: the row shows "Saved", "Change…" and "Remove…". "Change…" opens an empty box with "Save" and "Cancel". "Remove…" asks you to type "remove". A click outside the box or a close of the window changes nothing. The app reads the key at the start and after a change in Settings, not at each open. A wrong key gives HTTP 404 with a message that names the API key: the app shows "KLIPY refused the key. Check it in Settings."
+- **The switches:** Settings → "Search KLIPY in GIFs" (on at the start) and "Search KLIPY in Memes" (off at the start). They sync (D16). A tab with its switch off sends no request and shows no "From KLIPY", no grey KLIPY line and no KLIPY item. `PickSession` and `TileEntries` ask KLIPY only through `TileEntries.klipy(kind)`, which is nil when the switch is off.
+- **The search:** 350 ms after the last key (`SearchDebouncer`), 24 a page, the next page near the end of the grid, at most 96, in "From KLIPY" below "Yours". The last 8 searches stay in memory. A failed search gives one grey line (D2), and the next open tries again.
+- **Saved and learned items of an earlier build:** "Yours" shows them. The app gets the unknown slugs of one grid in one `items` call for each kind, and keeps at most 500 KLIPY items in memory. An item that KLIPY deleted drops with no line. The first lookup that succeeds makes its card.
+- **The items that you use (D18 of YAZ-2919):** each pick of a KLIPY GIF or meme (Enter, a click, Shift+Enter, Copy only) keeps a card and a file.
+  - **The card** goes into `cards` of `library-<Mac name>.json` after the paste starts. A pick saves the full list file: about 34 ms with 2,000 items and 2,000 cards (release build), on the main thread.
+  - **The file** goes into `klipy/` on this Mac (`KlipyFiles`). The pick moves the paste file there before the paste, so the clipboard gets the kept file and nothing downloads two times. The move goes to a hidden `.part` name in the folder, then one rename. The modification date of a file is its last use on this Mac.
+  - **The tiles:** a card gives its tile with no lookup (`OnlineResults.item(for:)`). The still and the moving picture come from the kept file when this Mac has it, else from the card URLs. A still that fails asks KLIPY for the slug one time. If KLIPY deleted the item and this Mac has no file, the tile does not show, and the card stays. A kept file pastes at once.
+  - **Where cards show:** "Your most used", and "Yours" for their learned words and their title. Not in "Your GIFs" / "Your memes" with no search, and not in "All your GIFs" / "All your memes".
+- **"Save to your GIFs" / "Save to your memes" (D18):** copies the kept file, else the paste file (a download, with "Getting the GIF…" for up to 3 s), into `gifs/` or `memes/` with the steps of the add window, with KLIPY's title, the search text as the word, and the slug in `klipyID`. The item is your own file (its key is `gif:<id>`), and it syncs like a meme. A KLIPY item that an earlier build saved by its slug (D7) keeps "Remove from your GIFs".
+- **The paste:** a kept file pastes at once. Else the paste file downloads when the blue box stays 300 ms on a KLIPY tile. Enter waits up to 3 s with "Getting the GIF…". The app deletes the paste files older than 5 minutes at each open of the panel and each minute, and all of them at quit.
+- **The pictures** of KLIPY tiles: the stills share the cache of `Thumbnails` (120). The moving `sm.gif` previews of the tiles on the screen load at most 4 at a time, in the order of the grid, and the last 30 stay in memory.
 
 ### The add window (D12 of YAZ-2919)
 
@@ -101,6 +154,7 @@ The history and the synced settings are in the preferences folder. The default i
 - **The Title box (D15 of YAZ-2919)** starts with the file name with no extension, with `-` and `_` as spaces and no copy mark (` (1)`): `midwit-mba.png` gives `midwit mba`. These give an empty box: a paste or a drop of bytes, a name of only digits, a UUID or a code name (16 or more hex characters), and a camera or system name with digits after it (`IMG_2231`, `Screenshot 2026-…`, `WhatsApp Image …`, `giphy`). `AddSource.title(fromName:)` holds the rule. A duplicate shows the title of its item. It changes the title only when you type a different text that is not empty.
 - **The add:** the file goes into `gifs/` or `memes/` off the main thread (`LibraryStore.writeMediaFile`). Then `LibraryStore.add` saves the list on the main thread, because the panel reads the list there.
 - **A close** with rows that wait asks "Close and drop N files?" in the window. A refused row does not count.
+- **The temp files** of a drop of file promises go into `$TMPDIR/YaseenEmoji-drop-<uuid>/`. The app deletes them at quit (`FileDrop.cleanUp`). A row keeps the bytes of its file after "Getting it ready…".
 
 ### The panel: titles and the meme preview (D15 of YAZ-2919)
 
@@ -108,20 +162,42 @@ The history and the synced settings are in the preferences folder. The default i
 - **"Rename…"** is on the right-click menu of your own GIFs and memes, not on KLIPY items. It works like "Add a word…": the grid shows `Type a title for "<short name>". Enter saves. Esc stops.`, and the search box starts with the title. Enter saves the text, and an empty text clears the title. Esc changes nothing. `LibraryStore.setTitle(_:of:)` never touches the file.
 - **The search:** the title counts like the name of an emoji. `TileEntry.name` is the title, so a full title that is the search text gives `isName`. The words of the title match like the words of the item. A saved KLIPY item uses KLIPY's title.
 - **The big preview:** on the Memes tab, the meme with the blue box shows in a second panel beside the search panel, 360 points wide and the height of the search panel. The picture is aspect-fit, with the tile text below. `MemePreview.item(isOpen:isSteppingAside:tab:selected:)` is the rule: it hides on the other tabs, with no blue box, and when the panel hides or steps aside. `MemePreview.frame(panel:visibleFrame:)` puts it on the right, or on the left when the screen has no room on the right.
-- **The preview window** (`MemePreviewController`) is a borderless, non-activating child window of the search panel. It ignores the mouse and cannot become key, so the search panel keeps the keyboard and does not close. It moves with a drag of the panel. Your meme loads from its file off the main thread (at most 1,200 pixels, the last 20 in memory). A KLIPY meme shows its paste file after 350 ms on it.
+- **The preview window** (`MemePreviewController`) is a borderless, non-activating child window of the search panel. It ignores the mouse and cannot become key, so the search panel keeps the keyboard and does not close. It moves with a drag of the panel. Your meme loads from its file off the main thread (at most 1,200 pixels, the last 8 in memory). A KLIPY meme shows its paste file after 350 ms on it.
 
-### Add GIFs and memes from the Terminal
+### Add many GIFs and memes from the Terminal (`--add-media`)
 
-For a fast test with many files, quit the app, then run the binary inside the app:
+The bulk add: for many files at once, or from a script. Yaseen added 15 memes with it on 16 Oct 2026. Quit the app, then run the binary inside the app:
 
 ```bash
-"/Applications/Yaseen Emoji.app/Contents/MacOS/YaseenEmoji" --add-media ~/Downloads/dance.gif ~/Downloads/fine.png --words "dance party"
+"/Applications/Yaseen Emoji.app/Contents/MacOS/YaseenEmoji" --add-media ~/Downloads/dance.gif ~/Downloads/fine.png --words "dance, party"
 ```
 
-- Each file goes through the same steps as the add window: the type check, MP4 and MOV to GIF, the 10 MB limit (`MediaImport.prepare`), then `LibraryStore.add`.
-- The words: the `--words` text. With none, a meme gets the words that Vision reads in it. With still none, the words come from the file name.
-- The command refuses to run while the app runs. It uses the prefs of the app, so run the binary inside the app, not `.build/debug/YaseenEmoji`.
+- Each file goes through the steps and the rules of the add window: the type check, MP4 and MOV to GIF, the 10 MB limit (`MediaImport.prepare`), then `LibraryStore.add`. It is not a second add path.
+- The words: the `--words` text, split at spaces and commas (`Item.words(typed:)`, the rule of the words box). With none, a meme gets the words that Vision reads in it. With still none, the words come from the file name.
+- The title (D15): a new item gets the title of its file name (`AddSource.title(fromName:)`, the rule of the Title box). An item that is there already keeps its title and gets only the new words.
+- It prints one line for each file: `Added GIF <id> from <file>, title: …, words: …`, `Already there: …`, or the error.
+- The command refuses to run while the app runs ("Quit Yaseen Emoji first."): the app keeps its list in memory and would write over the new items. It uses the prefs of the app, so run the binary inside the app, not `.build/debug/YaseenEmoji`.
 - Exit codes: 0 done, 1 a file failed, 2 no file, 3 the app runs.
+
+### Settings: the pages, and how to add a row (D19 of YAZ-2919)
+
+The settings window has a list of pages on the left and the page on the right, in a fixed window of 680 × 480 points. A long page scrolls inside the window. The pages, in this order:
+
+1. **General:** "Find an emoji" hotkey, "Default skin tone", "Start at login", Accessibility.
+2. **Enter and paste:** "When you press Enter": Emojis, GIFs and Memes, each with Paste | Copy only and "Keep it on the clipboard after a paste" (D16), and the grey line of what Enter does now.
+3. **GIFs and memes:** the KLIPY key (the locked row), "Search KLIPY in GIFs", "Search KLIPY in Memes", then the GIFs and memes folder with "Show in Finder".
+4. **Your history:** "Hidden from Your most used" and "Forget learned words…".
+5. **Sync folder:** the preferences folder with "Show in Finder", "Reset to Mac Default Folder…" and "Set preferences folder…".
+
+The window opens on the page that you used last on this Mac (`yaseenEmoji.settingsPage`, not synced). A page change stops the hotkey recorder, the type-to-confirm box and "Change…" of the KLIPY key. Each change saves at once.
+
+To add a row:
+
+1. Add a case to `SettingsRow` (`SettingsPage.swift`).
+2. Put the case in the `sections` of one page in `SettingsPage.sections`. The view draws each page only from this map.
+3. Add the `case` to `SettingsView.row(_:)` (`SettingsWindow.swift`) with its view. The `switch` has no `default`, so the build fails until the row has a view.
+4. Put the rules and the texts in `SettingsModel`, not in the view, so a test checks them. A setting that syncs is a `Dated` value in `You.Settings`, with `You.merge` and `SettingsModel.applySynced()` (D16). A setting of this Mac only is a key in `Prefs`.
+5. The test `eachPageListsItsRows` checks that each row is on exactly one page. Add the row to its expected list.
 
 To point the app at a folder without Settings, quit the app, then run `defaults write com.yaseenarshad.yaseenemoji yaseenEmoji.preferencesFolder -string "<folder>"`, then open the app.
 
@@ -147,16 +223,17 @@ The parts of `EmojiKit`:
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
 - `AddCommand`: `--add-media`, the add of GIFs and memes from the Terminal.
 - `AddWindow.swift`: the add window (D12 of YAZ-2919). `AddModel` holds the rows and their rules, with no view. `PasteReader` finds the best form on the clipboard through `PasteboardSource`, a protocol, so a test gives a fake clipboard. `FileDrop` reads a drop. `AddWindowController` is the non-activating panel with the SwiftUI view.
-- `PickSession`: the rules of the panel with no window: the tab (Emoji, GIFs, Memes; each open starts on Emoji), the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…" and "Rename…" (one `question` of the search box), the text below a tile (`label(of:)`), the items of the right-click menu (`menuActions(at:)`, `perform(_:)`) and "Hide from Your most used". One grid item is a `PickItem`: an emoji, your own GIF or meme, or a KLIPY item. Its `key` is the key in `you-<Mac>.json`. The GIFs and Memes tabs use the same `Search` as the emojis (`Searchable`, `TileEntry`).
+- `PickSession`: the rules of the panel with no window: the tab (Emoji, GIFs, Memes; each open starts on Emoji), the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…" and "Rename…" (one `question` of the search box), the text below a tile (`label(of:)`), the items of the right-click menu (`menuActions(at:)`, `perform(_:)`) and "Hide from Your most used".
+- `TileEntries.swift`: one grid item is a `PickItem`: an emoji, your own GIF or meme, or a KLIPY item. Its `key` is the key in `you-<Mac>.json`. `TileEntry` is the search entry of a GIF or meme, so the GIFs and Memes tabs use the same `Search` as the emojis (`Searchable`). `TileEntries` makes the entries of the tabs and holds the rules of which items show: your files, your saved KLIPY items, the cards, and the KLIPY items of an earlier build. It keeps the lists until the session calls `forget()`. `TileEntries.klipy(kind)` is the one way to KLIPY, nil when the switch of the tab is off.
 - `OnlineResults.swift`: the place of KLIPY in the GIFs and Memes tabs. With no `OnlineResults`, the tabs show only your own files and no "From KLIPY" section.
 - `KlipyResults.swift`: the real `OnlineResults`: the search after the pause, the pages, the lookup of saved and learned items by slug, the tiles of the cards (D18), the 300 ms prefetch, the 3 s wait of a paste file, the move of a picked file into the kept files, and the tile pictures. The network, the download, the kept files, the pause and the clock are parameters.
 - `KlipyFiles.swift`: the files of the KLIPY items that you used (D18 of YAZ-2919), on this Mac only: the atomic move, the last use (the modification date), and the limits of 50 files and 200 MB.
 - `Paster`: a pick. It writes the emoji or the file and posts ⌘V. Settings → "When you press Enter" (D16 of YAZ-2919) has, for each kind (`PickKind`: emojis, GIFs, memes), Paste | Copy only and "Keep it on the clipboard after a paste" (start values: Paste and Keep). With Keep, the item stays with no transient mark and no restore waits. With Keep off, it saves the clipboard first and puts the old clipboard back after 0.3 s (a file: 1.0 s), only if `changeCount` is still its own. Copy only, no Accessibility or a password field: copy only, and Keep has no effect. A file is one clipboard item (`ClipboardContents.fileItem`): the file URL, the file's own bytes in its own type, and the transient mark for a paste. No TIFF. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
-- `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`: Tab and Shift+Tab go round the tabs, ⌘1 to ⌘3 go to a tab.
+- `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`: Tab and Shift+Tab go round the tabs, ⌘1 to ⌘3 go to a tab. `EditKeys` is the one map of the edit keys (⌘V, ⌘C, ⌘X, ⌘A, ⌘Z, ⇧⌘Z) for the search panel, the add window and the settings window, because the app has no main menu.
 - `MemePreview.swift`: the big preview of the meme with the blue box (D15 of YAZ-2919). `MemePreview` is the pure rule (when, which item, which side). `MemePreviewController` is the thin window.
 - `EmojiGrid.swift`: one view that draws only the lines on the screen (9 emojis or 3 tiles in a row with a line of text below each tile, `GridMetrics`), the right-click menu, and the drag of the panel (a move of more than 4 points, `EmojiGridView.isDrag(from:to:)`). Each GIF tile on the screen plays (D11 update on YAZ-2925): `GridMetrics.playing(in:items:)` gives the GIF tiles in the visible rect (at most 15), and the grid puts a `MovingTileView` of its pool (at most 15) over each one. The blue box of a tile is a border view above them. The panel hides: all stop. `GridMetrics.scrollRect(of:)` keeps the titles above the row of the blue box in sight.
 - `MovingTiles.swift`: `MovingPictures` (the moving pictures of the tiles on the screen: at most 4 loads at a time in the order of the grid, a load for a tile that left the screen stops, at most 30 in memory; one for your own GIF files in the grid, one for the KLIPY previews in `KlipyResults`), `MovingTileView` (one moving view: round corners, aspect-fill, the "KLIPY" mark; it lets the mouse through).
-- `Thumbnails`: the still pictures of the tiles. It loads at most 4 at a time, off the main thread, into an `NSCache` of at most 120. It deletes the still picture of a removed item.
+- `Thumbnails`: the still pictures of the tiles. It loads at most 4 at a time, off the main thread, into an `NSCache` of at most 120 that `KlipyResults` uses too. At each open, it deletes the still picture of each item that does not show.
 - `Prefs`: the settings in `UserDefaults`, with the prefix `yaseenEmoji.`.
 - `SettingsModel` and `SettingsWindow.swift`: the rules of Settings with no window, and the SwiftUI view in a non-activating panel of 680 × 480 points: a list of pages on the left, and the page in a grouped form that scrolls (D19 of YAZ-2919).
 - `SettingsPage.swift`: the pages, their sections and their rows (`SettingsRow`). The view draws each page only from `SettingsPage.sections`, and its `switch` over `SettingsRow` has no `default`. A test checks that each row is on exactly one page. A new row: add a case, put it on a page, and give it a view. The pref `yaseenEmoji.settingsPage` keeps the last page on this Mac (not synced). A page change stops the hotkey recorder, the type-to-confirm box and "Change…" of the KLIPY key.
@@ -175,8 +252,8 @@ The parts of `EmojiKit`:
 - A test never reads or changes the real clipboard. It uses a fake one. The paste of the add window reads a `ClipboardContents` in the test.
 - The videos and pictures of the import tests are made in the test.
 - A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`. `KlipyRig` puts `KlipyResults` on a stub network with a `ManualSleep` for the pause and a `FakeLater` for the prefetch and the 3 s wait.
-- A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
-- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search of the emojis and of 2,000 made-up GIFs, and the change of a 5 s MP4 to a GIF. A `MEMORY` line gives the memory of 120 still pictures. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
+- A test writes only into a temporary folder: the preferences folder, the GIFs and memes folder, `thumbs/`, `paste/`, `klipy/` and the folder of a drop are all parameters. It never reads the real `you.json`, the real preferences folder, `yaseen-os` or the EmojiFinder database.
+- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search of the emojis and of 2,000 made-up GIFs, the change of a 5 s MP4 to a GIF, and the load and the save of a list of 2,000 items and 2,000 KLIPY cards. `MEMORY` gives the memory of 120 still pictures and of that list. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
 - The window parts (the panel, the grid, the menu on the screen) have no test. Check them on the real screen.
 
 ### The log
@@ -186,6 +263,46 @@ Read the log of the app with the full path of the tool (in some shells, `log` is
 ```bash
 /usr/bin/log show --last 5m --predicate 'subsystem == "com.yaseenarshad.yaseenemoji"'
 ```
+
+## Make the git history of yaseen-os small again
+
+Yaseen's preferences folder is `yaseen-os/Sync/yaseen-emoji`, in a git repository. By default `gifs/` and `memes/` are in it (D4 of YAZ-2919), so git keeps each GIF and meme file forever, also after you delete it or move the folder. A move of the GIFs and memes folder out of `yaseen-os` (Settings → "Set GIFs and memes folder…") does not make the repository smaller. Only a rewrite of the history does. The steps are from the scope note "the git history can be cleaned later" on YAZ-2908.
+
+What is in git and what is not:
+
+- In git: `you-<Mac name>.json`, `library-<Mac name>.json` (with the KLIPY cards: small text), and your own files in `gifs/` and `memes/`.
+- Never in git: the KLIPY files of D18 (`~/Library/Application Support/Yaseen Emoji/klipy/`), the still pictures and the paste files (`~/Library/Caches/Yaseen Emoji/`). They are not in the preferences folder (D18 update on YAZ-2919). Thus a rewrite never needs them.
+
+The rewrite is a one-time job of about 15 minutes. It rewrites all of `yaseen-os` (Alfred and the other synced files too), so do it by hand, never from the app:
+
+1. Stop the auto-sync of `yaseen-os` on both Macs.
+2. Keep the files that you want. To keep your GIFs and memes outside git, first move them with Settings → "Set GIFs and memes folder…" on each Mac, or copy `gifs/` and `memes/` to a safe place. The rewrite removes these folders from every commit, also from the newest one.
+3. On one Mac, make a backup of the repository, then check the size:
+
+   ```bash
+   cd ~/path/to/yaseen-os
+   git clone --mirror . ../yaseen-os-backup.git
+   git count-objects -vH
+   ```
+
+4. Install `git filter-repo` (`brew install git-filter-repo`) and remove the two folders from the history:
+
+   ```bash
+   git filter-repo --path Sync/yaseen-emoji/gifs --path Sync/yaseen-emoji/memes --invert-paths
+   ```
+
+   `git filter-repo` removes the `origin` remote. Add it again: `git remote add origin <the GitHub URL>`.
+5. Check the new size with `git count-objects -vH`, then force-push:
+
+   ```bash
+   git push --force --all origin
+   git push --force --tags origin
+   ```
+
+6. On the other Mac, clone `yaseen-os` again (or run `git fetch origin` and `git reset --hard origin/<branch>`, after you saved each change that is not pushed).
+7. Start the auto-sync again on both Macs.
+
+GitHub can keep the old objects for some time after a force-push. The repository on the Macs gets small at once. GitHub frees its space later.
 
 ## The signature
 

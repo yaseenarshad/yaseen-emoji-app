@@ -7,7 +7,7 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 - A word with no match still shows "Your most used" and all the groups. Pick any emoji there, and the word finds it the next time.
 - It pastes for you, then puts your old clipboard back.
 - macOS 14 or later, Apple Silicon. No Dock icon: the app lives in the menu bar.
-- No network use and no tracking.
+- No tracking. The app goes online only for the GIFs and Memes tabs, to search KLIPY with your own KLIPY key.
 
 ## The keys
 
@@ -38,7 +38,7 @@ To paste for you, the app needs the Accessibility permission. It asks one time, 
 
 Your history is in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. Each Mac writes its own file there, `you-<Mac name>.json`.
 
-To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "When you press Enter" and the default skin tone. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Reset to Mac Default Folder" goes back to the default folder. It and "Forget learned words" ask you to type a word first ("reset" or "forget").
+To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "When you press Enter", the default skin tone and the two KLIPY switches. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Reset to Mac Default Folder" goes back to the default folder. It and "Forget learned words" ask you to type a word first ("reset" or "forget").
 
 ## Build and install
 
