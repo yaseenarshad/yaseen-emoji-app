@@ -1,17 +1,43 @@
 import AppKit
 
-/// What a pick does (D2): paste into the app in front, or put the emoji on the clipboard only.
+/// What Enter does (D2; D16 of YAZ-2919): paste into the app in front, or put the item on the clipboard only.
 enum PickMode: String, CaseIterable {
     case paste
     case copyOnly
 
-    /// The name in Settings → "When you pick".
+    /// The name in Settings → "When you press Enter".
     var title: String {
         switch self {
         case .paste: return "Paste"
         case .copyOnly: return "Copy only"
         }
     }
+}
+
+/// The three rows of Settings → "When you press Enter" (D16 of YAZ-2919). Each kind has its own mode and Keep value.
+enum PickKind: String, CaseIterable {
+    case emoji
+    case gif
+    case meme
+
+    init(_ kind: ItemKind) {
+        switch kind {
+        case .gif: self = .gif
+        case .meme: self = .meme
+        }
+    }
+
+    /// The name of the row in Settings.
+    var title: String {
+        switch self {
+        case .emoji: return "Emojis"
+        case .gif: return "GIFs"
+        case .meme: return "Memes"
+        }
+    }
+
+    /// The name in a sentence: "emojis", "GIFs", "memes".
+    var name: String { self == .gif ? title : title.lowercased() }
 }
 
 /// The skin tones of Settings → "Default skin tone" (D9).
@@ -32,7 +58,7 @@ enum SkinTone {
 
 /// The settings of the app, in `UserDefaults` (D2, D8, D9, D16).
 ///
-/// The hotkey, "When you pick" and the default skin tone also sync through the history files (D16).
+/// The hotkey, "When you press Enter", the default skin tone and the two KLIPY switches also sync through the history files (D16).
 /// `UserDefaults` is the cache of this Mac: it keeps the value and the time of the change that this Mac applied.
 /// The `UserDefaults` is a parameter, so a test gives one that keeps its values in memory.
 /// A value that is missing or broken gives the start value. Prefs never fail.
@@ -47,9 +73,20 @@ final class Prefs {
         static let hotKeyChangedAt = "yaseenEmoji.hotKeyChangedAt"
         static let pickModeChangedAt = "yaseenEmoji.pickModeChangedAt"
         static let defaultToneChangedAt = "yaseenEmoji.defaultToneChangedAt"
+        static let keepOnClipboard = "yaseenEmoji.keepOnClipboard"
+        static let keepOnClipboardChangedAt = "yaseenEmoji.keepOnClipboardChangedAt"
+        static let klipyGIFs = "yaseenEmoji.klipyGIFs"
+        static let klipyMemes = "yaseenEmoji.klipyMemes"
+        static let klipyGIFsChangedAt = "yaseenEmoji.klipyGIFsChangedAt"
+        static let klipyMemesChangedAt = "yaseenEmoji.klipyMemesChangedAt"
         static let preferencesFolder = "yaseenEmoji.preferencesFolder"
         static let mediaFolder = "yaseenEmoji.mediaFolder"
         static let macName = "yaseenEmoji.macName"
+
+        static func klipy(_ kind: ItemKind) -> String { kind == .gif ? klipyGIFs : klipyMemes }
+        /// `yaseenEmoji.pickMode.emoji` and so on: the key of one kind (D16 of YAZ-2919).
+        static func of(_ key: String, _ kind: PickKind) -> String { key + "." + kind.rawValue }
+        static func klipyChangedAt(_ kind: ItemKind) -> String { kind == .gif ? klipyGIFsChangedAt : klipyMemesChangedAt }
     }
 
     private let defaults: UserDefaults
@@ -76,10 +113,27 @@ final class Prefs {
         }
     }
 
-    /// "When you pick". The start value is Paste (D2).
-    var pickMode: PickMode {
-        get { (defaults.object(forKey: Key.pickMode) as? String).flatMap(PickMode.init(rawValue:)) ?? .paste }
-        set { defaults.set(newValue.rawValue, forKey: Key.pickMode) }
+    /// "When you press Enter" of one kind (D16 of YAZ-2919). A kind with no value of its own uses the one
+    /// "When you pick" of v0.1 (D2), so an old Copy only stays Copy only. Then the start value is Paste.
+    func pickMode(_ kind: PickKind) -> PickMode {
+        mode(Key.of(Key.pickMode, kind)) ?? mode(Key.pickMode) ?? .paste
+    }
+
+    func setPickMode(_ mode: PickMode, for kind: PickKind) {
+        defaults.set(mode.rawValue, forKey: Key.of(Key.pickMode, kind))
+    }
+
+    /// "Keep it on the clipboard after a paste" of one kind (D16 of YAZ-2919). The start value is on.
+    func keepsOnClipboard(_ kind: PickKind) -> Bool {
+        defaults.object(forKey: Key.of(Key.keepOnClipboard, kind)) as? Bool ?? true
+    }
+
+    func setKeepsOnClipboard(_ keep: Bool, for kind: PickKind) {
+        defaults.set(keep, forKey: Key.of(Key.keepOnClipboard, kind))
+    }
+
+    private func mode(_ key: String) -> PickMode? {
+        (defaults.object(forKey: key) as? String).flatMap(PickMode.init(rawValue:))
     }
 
     /// "Default skin tone": "" (yellow) or one tone mark of `SkinTone.all`. The start value is yellow (D9).
@@ -91,6 +145,16 @@ final class Prefs {
         set { defaults.set(SkinTone.all.contains(newValue) ? newValue : "", forKey: Key.defaultTone) }
     }
 
+    /// "Search KLIPY in GIFs" and "Search KLIPY in Memes" (D14 update of YAZ-2919).
+    /// The start values: GIFs on, Memes off (Yaseen, 16 Oct 2026: "memes off by default").
+    func searchesKlipy(_ kind: ItemKind) -> Bool {
+        defaults.object(forKey: Key.klipy(kind)) as? Bool ?? (kind == .gif)
+    }
+
+    func setSearchesKlipy(_ on: Bool, for kind: ItemKind) {
+        defaults.set(on, forKey: Key.klipy(kind))
+    }
+
     /// True after the first launch asked for Accessibility. The app asks one time only (D2).
     var askedForAccessibility: Bool {
         get { defaults.object(forKey: Key.askedForAccessibility) as? Bool ?? false }
@@ -99,21 +163,44 @@ final class Prefs {
 
     // MARK: D16
 
-    /// The time of the hotkey, "When you pick" and the default skin tone that this Mac uses now.
+    /// The time of the hotkey and the default skin tone that this Mac uses now.
     /// The app applies a setting from a history file only when it is newer. Nil: no dated change yet.
     var hotKeyChangedAt: Date? {
         get { defaults.object(forKey: Key.hotKeyChangedAt) as? Date }
         set { defaults.set(newValue, forKey: Key.hotKeyChangedAt) }
     }
 
-    var pickModeChangedAt: Date? {
-        get { defaults.object(forKey: Key.pickModeChangedAt) as? Date }
-        set { defaults.set(newValue, forKey: Key.pickModeChangedAt) }
-    }
-
     var defaultToneChangedAt: Date? {
         get { defaults.object(forKey: Key.defaultToneChangedAt) as? Date }
         set { defaults.set(newValue, forKey: Key.defaultToneChangedAt) }
+    }
+
+    /// The time of the mode of `kind` that this Mac uses now. A kind with no time of its own uses the time of
+    /// the v0.1 "When you pick", so the old synced value does not win again over the old local one.
+    func pickModeChangedAt(_ kind: PickKind) -> Date? {
+        defaults.object(forKey: Key.of(Key.pickModeChangedAt, kind)) as? Date ?? defaults.object(forKey: Key.pickModeChangedAt) as? Date
+    }
+
+    func setPickModeChangedAt(_ date: Date, for kind: PickKind) {
+        defaults.set(date, forKey: Key.of(Key.pickModeChangedAt, kind))
+    }
+
+    /// The time of the Keep value of `kind` that this Mac uses now, or nil.
+    func keepChangedAt(_ kind: PickKind) -> Date? {
+        defaults.object(forKey: Key.of(Key.keepOnClipboardChangedAt, kind)) as? Date
+    }
+
+    func setKeepChangedAt(_ date: Date, for kind: PickKind) {
+        defaults.set(date, forKey: Key.of(Key.keepOnClipboardChangedAt, kind))
+    }
+
+    /// The time of the KLIPY switch of `kind` that this Mac uses now, or nil.
+    func klipyChangedAt(_ kind: ItemKind) -> Date? {
+        defaults.object(forKey: Key.klipyChangedAt(kind)) as? Date
+    }
+
+    func setKlipyChangedAt(_ date: Date, for kind: ItemKind) {
+        defaults.set(date, forKey: Key.klipyChangedAt(kind))
     }
 
     /// The path of the preferences folder. "" is the default folder. It stays on each Mac.

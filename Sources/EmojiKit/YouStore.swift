@@ -50,11 +50,29 @@ public struct You: Codable, Equatable, Sendable {
     /// "Start at login", Accessibility and the folder path stay on each Mac.
     public struct Settings: Codable, Equatable, Sendable {
         public var hotKey: Dated<Key>?
-        /// `PickMode.rawValue`.
+        /// The one "When you pick" of v0.1 (D2), `PickMode.rawValue`. The app reads it but no longer writes it:
+        /// it gives the mode of each kind that has no value in `pickModes`, so an old file still loads.
         public var pickMode: Dated<String>?
+        /// "When you press Enter" (D16 of YAZ-2919), keyed by `PickKind.rawValue`: `PickMode.rawValue` of each kind,
+        /// and "Keep it on the clipboard after a paste" of each kind. An older file has none.
+        public var pickModes: [String: Dated<String>]?
+        public var keepOnClipboard: [String: Dated<Bool>]?
         /// "" (yellow) or one tone mark of `SkinTone.all`.
         public var defaultTone: Dated<String>?
+        /// "Search KLIPY in GIFs" and "Search KLIPY in Memes" (D14 update of YAZ-2919). An older file has none.
+        public var klipyGIFs: Dated<Bool>?
+        public var klipyMemes: Dated<Bool>?
         public init() {}
+
+        /// The KLIPY switch of the tab of `kind`.
+        static func klipy(_ kind: ItemKind) -> WritableKeyPath<Settings, Dated<Bool>?> {
+            kind == .gif ? \.klipyGIFs : \.klipyMemes
+        }
+
+        /// The mode of `kind`: its own value, or the v0.1 `pickMode`.
+        func pickMode(_ kind: PickKind) -> Dated<String>? {
+            pickModes?[kind.rawValue] ?? pickMode
+        }
     }
 
     /// The emojis for each search text: search text → emoji key → how many times, and the last time.
@@ -158,7 +176,11 @@ public struct You: Codable, Equatable, Sendable {
             }
             merged.settings.hotKey = newest(merged.settings.hotKey, file.settings.hotKey)
             merged.settings.pickMode = newest(merged.settings.pickMode, file.settings.pickMode)
+            merged.settings.pickModes = newestEach(merged.settings.pickModes, file.settings.pickModes)
+            merged.settings.keepOnClipboard = newestEach(merged.settings.keepOnClipboard, file.settings.keepOnClipboard)
             merged.settings.defaultTone = newest(merged.settings.defaultTone, file.settings.defaultTone)
+            merged.settings.klipyGIFs = newest(merged.settings.klipyGIFs, file.settings.klipyGIFs)
+            merged.settings.klipyMemes = newest(merged.settings.klipyMemes, file.settings.klipyMemes)
         }
         return merged
     }
@@ -167,6 +189,14 @@ public struct You: Codable, Equatable, Sendable {
         guard let a else { return b }
         guard let b else { return a }
         return b.at > a.at ? b : a
+    }
+
+    /// The newest change of each key of two maps.
+    private static func newestEach<Value>(_ a: [String: Dated<Value>]?, _ b: [String: Dated<Value>]?) -> [String: Dated<Value>]? {
+        guard let b else { return a }
+        var all = a ?? [:]
+        for (key, value) in b { all[key] = newest(all[key], value) }
+        return all
     }
 }
 
@@ -336,11 +366,21 @@ public final class YouStore {
         return time
     }
 
-    /// A new "When you pick" in Settings. Returns the time of the change.
+    /// A new "Paste | Copy only" of one kind in Settings → "When you press Enter" (D16 of YAZ-2919).
+    /// Returns the time of the change.
     @discardableResult
-    public func setPickMode(_ mode: String) -> Date {
+    func setPickMode(_ mode: String, for kind: PickKind) -> Date {
         let time = now()
-        own.settings.pickMode = You.Dated(mode, at: time)
+        own.settings.pickModes = (own.settings.pickModes ?? [:]).merging([kind.rawValue: You.Dated(mode, at: time)]) { $1 }
+        changed()
+        return time
+    }
+
+    /// A new "Keep it on the clipboard after a paste" of one kind (D16 of YAZ-2919). Returns the time of the change.
+    @discardableResult
+    func setKeepsOnClipboard(_ keep: Bool, for kind: PickKind) -> Date {
+        let time = now()
+        own.settings.keepOnClipboard = (own.settings.keepOnClipboard ?? [:]).merging([kind.rawValue: You.Dated(keep, at: time)]) { $1 }
         changed()
         return time
     }
@@ -350,6 +390,16 @@ public final class YouStore {
     public func setDefaultTone(_ tone: String) -> Date {
         let time = now()
         own.settings.defaultTone = You.Dated(tone, at: time)
+        changed()
+        return time
+    }
+
+    /// A new "Search KLIPY in GIFs" or "Search KLIPY in Memes" in Settings (D14 update of YAZ-2919).
+    /// Returns the time of the change.
+    @discardableResult
+    public func setSearchesKlipy(_ on: Bool, for kind: ItemKind) -> Date {
+        let time = now()
+        own.settings[keyPath: You.Settings.klipy(kind)] = You.Dated(on, at: time)
         changed()
         return time
     }

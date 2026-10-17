@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The paste of a GIF or meme file and the right-click actions, with no window (YAZ-2926; D6 and D13 of YAZ-2919).
 /// The fake clipboard uses the same item as the real one (`ClipboardContents.fileItem`). No test touches the
-/// real clipboard, the real Trash or Finder.
+/// real clipboard or Finder.
 @MainActor
 @Suite struct FilePasteTests {
     /// The one clipboard item of D6: the file URL, the file's own bytes in its own type, and the transient mark.
@@ -20,6 +20,7 @@ import UniformTypeIdentifiers
     /// after 1.0 s, not 0.3 s. A new copy of the user in the wait stays.
     @Test func aGIFPickPastesTheFileAndRestoresAfterOneSecond() throws {
         let rig = try PickRig()
+        rig.setEnter(keep: false)
         let gif = try rig.addOwn(words: ["dance"])
         let url = try #require(rig.library.fileURL(of: gif))
         rig.session.open()
@@ -82,14 +83,14 @@ import UniformTypeIdentifiers
         #expect(rig.store.you.uses[gif.key]?.count == 1)
 
         // Copy only in Settings: Enter copies too.
-        rig.prefs.pickMode = .copyOnly
+        rig.setEnter(.copyOnly, keep: false)
         rig.session.open()
         rig.session.select(tab: .gifs)
         rig.session.enter(shift: false)
         rig.later.runAll()
         #expect(rig.keys.sent.isEmpty && rig.clipboard.restores == 0)
 
-        rig.prefs.pickMode = .paste
+        rig.setEnter(.paste, keep: false)
         rig.session.open()
         rig.session.select(tab: .gifs)
         rig.session.enter(shift: true)
@@ -100,50 +101,59 @@ import UniformTypeIdentifiers
         #expect(rig.clipboard.contents == (try fileItem(url, .gif, transient: false)))
     }
 
-    /// D4: a GIF whose file is missing (git did not pull it yet) shows a grey tile, and a pick does nothing.
-    @Test func aMissingFileDoesNothing() throws {
+    /// D13 update on YAZ-2926 (Yaseen: "if i want to remove it, i would just have to find it in finder and then delete it there"):
+    /// a GIF whose file you deleted in Finder does not show at the next open: not in "Your most used", "Your GIFs" or "Yours".
+    /// It stays in the list. When the file comes back (a `git pull`), it shows again at the next open.
+    @Test func aDeletedFileLeavesTheGridAndComesBack() throws {
         let rig = try PickRig()
         let gif = try rig.addOwn(words: ["dance"])
-        try FileManager.default.removeItem(at: try #require(rig.library.fileURL(of: gif)))
+        let other = try rig.addOwn(words: ["dance"], seed: 1)
+        rig.store.recordPick(gif.key, query: "")
         rig.session.willOpen = { rig.library.reload() }
+        let session = rig.session
+        session.open()
+        session.select(tab: .gifs)
+        #expect(session.items.filter { $0 == .own(gif) }.count == 2)        // "Your most used" and "Your GIFs"
+
+        let file = try #require(rig.library.fileURL(of: gif))
+        let bytes = try Data(contentsOf: file)
+        try FileManager.default.removeItem(at: file)
+        // The open panel does not list the folder again: the grid changes at the next open.
+        #expect(session.items.contains(.own(gif)))
+        session.close()
+        session.open()
+        session.select(tab: .gifs)
+        #expect(rig.library.missing == [gif.id] && rig.library.item(gif.id)?.isRemoved == false)
+        #expect(session.items == [.own(other)])
+        #expect(session.lines == [.title("Your GIFs"), .cells(0..<1)])
+        session.setQuery("dance")
+        #expect(session.items == [.own(other)])
+
+        // Git pulls the file again: the GIF is back at the next open, with its uses.
+        try bytes.write(to: file)
+        session.close()
+        session.open()
+        session.select(tab: .gifs)
+        #expect(rig.library.missing.isEmpty)
+        #expect(session.mostUsedItems == 0..<1 && session.items.first == .own(gif))
+        #expect(session.items.filter { $0 == .own(gif) }.count == 2)
+    }
+
+    /// D4: a file that goes away while the panel is open: a pick and ⌘C do nothing, and the panel stays open.
+    @Test func aPickOfAFileThatWentAwayDoesNothing() throws {
+        let rig = try PickRig()
+        let gif = try rig.addOwn(words: ["dance"])
         rig.session.open()
         rig.session.select(tab: .gifs)
-        #expect(rig.library.missing == [gif.id])
         #expect(rig.session.items == [.own(gif)] && rig.session.selection == 0)
+        try FileManager.default.removeItem(at: try #require(rig.library.fileURL(of: gif)))
+        rig.library.reload()
         rig.session.enter(shift: false)
         rig.session.copyOnly()
         rig.later.runAll()
         #expect(rig.session.isOpen)
         #expect(rig.clipboard.contents == FakeClipboard.rich && rig.keys.sent.isEmpty)
         #expect(rig.store.you.uses.isEmpty)
-    }
-
-    /// D13: "Move to Trash" marks the item removed, and the GIFs tab no longer shows it (with a fake Trash).
-    /// The panel stays open. A Trash that refuses changes nothing.
-    @Test func moveToTrashRemovesTheGIF() throws {
-        let rig = try PickRig()
-        let gif = try rig.addOwn(words: ["dance"])
-        let other = try rig.addOwn(words: ["wave"], seed: 1)
-        rig.session.open()
-        rig.session.select(tab: .gifs)
-        rig.session.select(try rig.place(of: gif.key))
-
-        rig.trash.refuses = true
-        rig.session.perform(.moveToTrash)
-        #expect(rig.library.item(gif.id)?.isRemoved == false)
-        #expect(rig.session.items.contains(.own(gif)))
-
-        rig.trash.refuses = false
-        rig.session.perform(.moveToTrash)
-        #expect(rig.session.isOpen)
-        #expect(rig.library.item(gif.id)?.isRemoved == true)
-        #expect(rig.trash.trashed == ["\(gif.id).gif"])
-        #expect(rig.session.items == [.own(other)])
-        #expect(rig.session.lines == [.title("Your GIFs"), .cells(0..<1)])
-        // A new store on the same folder (the next start) does not show it either.
-        let next = LibraryStore(url: rig.library.url, mediaFolder: rig.library.mediaFolder, trash: rig.trash)
-        next.load()
-        #expect(next.items(.gif).map(\.id) == [other.id])
     }
 
     /// D13: "Show in Finder" closes the panel and shows the file. "Add a GIF or meme…" calls the hook of subissue 3.

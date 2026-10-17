@@ -10,6 +10,7 @@ import Testing
     /// "ship" is learned, and the next "ship" search has 🚀 first.
     @Test func endToEndSearchPickPasteLearnSearchAgain() throws {
         let rig = try PickRig()
+        rig.setEnter(keep: false)
         rig.session.toggle()
         #expect(rig.session.isOpen)
         #expect(rig.panel.calls == ["show"])
@@ -92,6 +93,7 @@ import Testing
 
     @Test func shiftEnterKeepsThePanelOpen() throws {
         let rig = try PickRig()
+        rig.setEnter(keep: false)
         rig.session.open()
         rig.session.setQuery("thumb")
         try rig.select("👍")
@@ -125,7 +127,7 @@ import Testing
     /// Esc closes with no paste (D8).
     @Test func copyOnlyAndEscPostNoKey() throws {
         let rig = try PickRig()
-        rig.prefs.pickMode = .copyOnly
+        rig.setEnter(.copyOnly, keep: true)
         rig.session.open()
         rig.session.setQuery("rocket")
         try rig.select("🚀")
@@ -138,7 +140,7 @@ import Testing
         #expect(!rig.session.isOpen)
 
         // ⌘C in Paste mode: copy only too, and the panel closes (D8).
-        rig.prefs.pickMode = .paste
+        rig.setEnter(.paste, keep: true)
         rig.session.open()
         rig.session.setQuery("fire")
         try rig.select("🔥")
@@ -188,6 +190,7 @@ import Testing
     /// A Copy only pick in the wait: its emoji stays, and the restore of the first pick does nothing.
     @Test func aNewCopyDuringTheWaitIsKept() throws {
         let rig = try PickRig()
+        rig.setEnter(keep: false)
         rig.session.open()
         rig.session.setQuery("rocket")
         rig.session.enter(shift: false)

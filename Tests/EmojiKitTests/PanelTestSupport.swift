@@ -139,6 +139,8 @@ final class FakePanel: PickPanel {
     func stepAside() { calls.append("stepAside") }
     func comeBack() { calls.append("comeBack") }
     func reload() {}
+    /// New KLIPY results: the grid keeps its scroll.
+    func update() { calls.append("update") }
     func showSelection() {}
 }
 
@@ -155,23 +157,24 @@ final class PickRig {
     let later = FakeLater()
     let panel = FakePanel()
     let session: PickSession
-    /// The list of GIFs and memes, in the default preferences folder of the rig, with a fake Trash and a step clock.
+    /// The list of GIFs and memes, in the default preferences folder of the rig, with a step clock.
     let library: LibraryStore
-    let trash: FakeTrash
     let thumbnails: Thumbnails
     /// The files that "Show in Finder" showed.
     private(set) var shownInFinder: [URL] = []
     /// The default preferences folder of the rig, and the Mac name "Test-Mac".
     var folders: PreferencesFolder { PreferencesFolder(defaultFolder: folder.defaultFolder, macName: "Test-Mac") }
 
+    /// The KLIPY key of `parts`: none by default.
+    let klipyKey = FakeKeyStore()
+
     init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil) throws {
         folder = try TempFolder()
         prefs = Prefs(defaults: defaults)
         store = YouStore(url: folder.youFile)
         store.load()
-        trash = FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true))
         library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
-                               mediaFolder: folder.defaultFolder, trash: trash, now: StepClock().now)
+                               mediaFolder: folder.defaultFolder, now: StepClock().now)
         library.load()
         thumbnails = Thumbnails(folder: folder.url.appendingPathComponent("thumbs", isDirectory: true))
         access = FakePasteAccess(trusted: trusted)
@@ -180,6 +183,15 @@ final class PickRig {
                               online: online, thumbnails: thumbnails)
         session.panel = panel
         session.showInFinder = { [unowned self] in self.shownInFinder.append($0) }
+    }
+
+    /// D16 of YAZ-2919: the same "Paste | Copy only" and Keep value for all three kinds.
+    /// Keep off gives the D2 paste of v0.1: the old clipboard comes back.
+    func setEnter(_ mode: PickMode = .paste, keep: Bool) {
+        for kind in PickKind.allCases {
+            prefs.setPickMode(mode, for: kind)
+            prefs.setKeepsOnClipboard(keep, for: kind)
+        }
     }
 
     /// The emoji texts of the grid.
@@ -204,14 +216,26 @@ final class PickRig {
         try #require(session.items.firstIndex { $0.key == key }, "\(key) is not in the grid")
     }
 
+    /// A `SettingsModel` on the same prefs, history and list. A change of a KLIPY switch goes to the session,
+    /// the same as in the app.
+    func settingsModel() -> SettingsModel {
+        let model = SettingsModel(prefs: prefs, hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), access: access,
+                                  store: store, folders: folders, library: library, keyStore: klipyKey)
+        model.onKlipySwitchChanged = { [session] in session.klipySwitchChanged() }
+        return model
+    }
+
     /// The parts of an `AppController` with the same fakes, and a catalog that loads with no file.
     func parts(catalog: [Emoji]) -> AppParts {
         AppParts(defaults: defaults, defaultFolder: folder.defaultFolder, computerName: { "Test Mac" },
                  loadCatalog: { catalog },
                  clipboard: clipboard, keys: keys, access: access, later: later,
-                 trash: FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true)),
                  thumbnailFolder: folder.url.appendingPathComponent("thumbs", isDirectory: true),
                  showInFinder: { _ in },
+                 klipyKey: klipyKey,
+                 // A stub session with no route: each request fails as "not connected". No test goes online.
+                 onlineSession: KlipyLibrary.makeSession(protocolClasses: [StubURLProtocol.self]),
+                 cacheFolder: folder.url.appendingPathComponent("Caches", isDirectory: true),
                  makePanel: { [panel] _ in panel })
     }
 }
@@ -228,11 +252,12 @@ extension PickSession {
     var emojis: [Emoji] { items.compactMap(\.emoji) }
 }
 
-/// KLIPY with no network (the seam of subissue 4). The test gives the known items and the results.
+/// KLIPY with no network (the seam of `OnlineResults`). The test gives the known items and the results.
 @MainActor
 final class FakeOnline: OnlineResults {
     var isOn = true
     var onChange: () -> Void = {}
+    var onPicture: () -> Void = {}
     /// The items that this session knows, by slug.
     var known: [String: OnlineItem] = [:]
     /// The "From KLIPY" results of each search text.
@@ -241,19 +266,25 @@ final class FakeOnline: OnlineResults {
     var files: [String: URL] = [:]
     private(set) var asked: [String] = []
 
-    func item(_ slug: String) -> OnlineItem? { known[slug] }
+    func item(_ slug: String, kind: ItemKind) -> OnlineItem? { known[slug].flatMap { $0.kind == kind ? $0 : nil } }
 
     func section(for text: String, kind: ItemKind) -> OnlineSection? {
         asked.append(text)
         return results[text]
     }
 
+    func loadMore(for text: String, kind: ItemKind) {}
+    func selectionChanged(to item: OnlineItem?) {}
     func pasteFile(for item: OnlineItem) -> URL? { files[item.id] }
+    func getPasteFile(for item: OnlineItem, done: @escaping @MainActor (URL?) -> Void) { done(files[item.id]) }
     func still(for item: OnlineItem) -> NSImage? { nil }
     func moving(for item: OnlineItem) -> NSImage? { nil }
+    func wantMoving(_ items: [OnlineItem]) {}
+    func refresh() {}
+    func stop() {}
 
     /// A KLIPY GIF with this slug. The URLs are never loaded.
-    static func gif(_ slug: String, kind: OnlineKind = .gif) -> OnlineItem {
+    static func gif(_ slug: String, kind: ItemKind = .gif) -> OnlineItem {
         let base = URL(string: "https://static.klipy.com/\(slug)")!
         return OnlineItem(id: slug, number: nil, kind: kind, title: slug, still: base.appendingPathComponent("sm.jpg"),
                           preview: base.appendingPathComponent("sm.gif"), file: base.appendingPathComponent("md.gif"),

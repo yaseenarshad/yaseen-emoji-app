@@ -26,22 +26,39 @@ public struct Item: Codable, Equatable, Sendable {
     public var klipyID: String?
     /// The words of the item: typed at add, or read from a meme (D8). "Forget learned words" keeps them.
     public var words: [String]
+    /// The title of the tile (D15 of YAZ-2919), or "". It syncs with the item. The file keeps its code name (D4).
+    public var title: String
     public var added: Date
-    /// The time of "Move to Trash" or "Remove from your GIFs", or nil.
+    /// The time of "Remove from your GIFs" (or of "Move to Trash" in an earlier build), or nil.
     public var removed: Date?
     /// The time of the last change. The newest change of all Macs wins (D3).
     public var changed: Date
 
-    public init(id: String, kind: ItemKind, file: String?, klipyID: String?, words: [String],
+    public init(id: String, kind: ItemKind, file: String?, klipyID: String?, words: [String], title: String = "",
                 added: Date, removed: Date? = nil, changed: Date) {
         self.id = id
         self.kind = kind
         self.file = file
         self.klipyID = klipyID
         self.words = words
+        self.title = title
         self.added = added
         self.removed = removed
         self.changed = changed
+    }
+
+    /// A list file from an earlier build has no `title`: it gives "" (D15 of YAZ-2919).
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        kind = try values.decode(ItemKind.self, forKey: .kind)
+        file = try values.decodeIfPresent(String.self, forKey: .file)
+        klipyID = try values.decodeIfPresent(String.self, forKey: .klipyID)
+        words = try values.decode([String].self, forKey: .words)
+        title = try values.decodeIfPresent(String.self, forKey: .title) ?? ""
+        added = try values.decode(Date.self, forKey: .added)
+        removed = try values.decodeIfPresent(Date.self, forKey: .removed)
+        changed = try values.decode(Date.self, forKey: .changed)
     }
 
     /// The key of the item in `you-<Mac>.json` (D3): `gif:<id>`, `meme:<id>`, or `klipy:<klipyID>`.
@@ -64,13 +81,21 @@ public struct Item: Codable, Equatable, Sendable {
         return result
     }
 
+    /// A title as the list keeps it (D15 of YAZ-2919): trimmed, one space between words, the case as typed.
+    static func cleanTitle(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
     /// The item that wins for one `id` (D3): the newest `changed`. The same time: the delete wins.
-    /// The same time and the same state: more words, then the larger text of the words, so each Mac selects the same item.
+    /// The same time and the same state: more words, then the larger text of the words, then the larger title,
+    /// so each Mac selects the same item.
     static func winner(_ a: Item, _ b: Item) -> Item {
         if a.changed != b.changed { return a.changed > b.changed ? a : b }
         if a.isRemoved != b.isRemoved { return a.isRemoved ? a : b }
         if a.words.count != b.words.count { return a.words.count > b.words.count ? a : b }
-        return a.words.joined(separator: "\n") >= b.words.joined(separator: "\n") ? a : b
+        let aWords = a.words.joined(separator: "\n"), bWords = b.words.joined(separator: "\n")
+        if aWords != bWords { return aWords > bWords ? a : b }
+        return a.title >= b.title ? a : b
     }
 }
 
@@ -140,20 +165,6 @@ public enum AddResult: Equatable, Sendable {
         switch self {
         case .added(let item), .alreadyThere(let item): return item
         }
-    }
-}
-
-/// Moves a file to the Trash. A protocol, so a test never touches the real Trash.
-public protocol Trash {
-    func moveToTrash(_ url: URL) throws
-}
-
-/// The macOS Trash (`FileManager.trashItem`). "Put Back" in Finder undoes it.
-public struct SystemTrash: Trash {
-    public init() {}
-
-    public func moveToTrash(_ url: URL) throws {
-        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
     }
 }
 
@@ -240,7 +251,8 @@ public enum MediaFolder {
 /// Keeps this Mac's list of GIFs and memes in `library-<Mac name>.json` (D3 of YAZ-2919), and reads the lists
 /// of the other Macs in the same folder. It works like `YouStore`: each change saves this Mac's file at once,
 /// with an atomic write, and the store never writes the file of a different Mac.
-/// The paths and the Trash are parameters, so a test gives temp folders and a fake Trash.
+/// The paths are parameters, so a test gives temp folders.
+/// The app never deletes a file of `gifs/` or `memes/`: you delete it in Finder (D13 update on YAZ-2926).
 public final class LibraryStore {
     /// This Mac's list file, in the preferences folder.
     public private(set) var url: URL
@@ -252,8 +264,8 @@ public final class LibraryStore {
     public private(set) var all: [String: Item] = [:]
     /// The items that are not removed, the newest add first. The panel reads this.
     public private(set) var items: [Item] = []
-    /// The `id`s of the items whose file is not in the GIFs and memes folder, for example before a `git pull`.
-    /// The panel shows a grey tile for them.
+    /// The `id`s of the items whose file is not in the GIFs and memes folder: deleted in Finder, or before a `git pull`.
+    /// The panel does not show them (D13 update on YAZ-2926).
     public private(set) var missing: Set<String> = []
     /// True when the GIFs and memes folder is gone, for example on an unmounted drive.
     public private(set) var mediaFolderIsMissing = false
@@ -265,13 +277,11 @@ public final class LibraryStore {
     private var others = OtherMacFiles<LibraryFile>()
     /// True when a bad file could not move away. Then the store never writes over it.
     private var saveIsBlocked = false
-    private let trash: Trash
     private let now: () -> Date
 
-    public init(url: URL, mediaFolder: URL, trash: Trash, now: @escaping () -> Date = Date.init) {
+    public init(url: URL, mediaFolder: URL, now: @escaping () -> Date = Date.init) {
         self.url = url
         self.mediaFolder = mediaFolder
-        self.trash = trash
         self.now = now
     }
 
@@ -350,14 +360,18 @@ public final class LibraryStore {
     /// `kind` is the kind of the add window, so a GIF marked as a meme goes into `memes/`.
     /// The same `id` again adds only the new words, and says so (`alreadyThere`). It writes the file again
     /// when it is missing. An item that was removed comes back, with its old words and the new words.
+    /// `title` (D15 of YAZ-2919): an empty title keeps the title that the item has.
     @discardableResult
-    public func add(_ file: PreparedFile, as kind: ItemKind? = nil, words: [String]) throws -> AddResult {
+    public func add(_ file: PreparedFile, as kind: ItemKind? = nil, words: [String], title: String = "") throws -> AddResult {
         let words = Item.clean(words)
+        let title = Item.cleanTitle(title)
         if var item = all[file.id], !item.isRemoved {
             try write(file, at: item.file)
             let new = words.filter { !item.words.contains($0) }
-            if !new.isEmpty {
+            let newTitle = !title.isEmpty && title != item.title
+            if !new.isEmpty || newTitle {
                 item.words += new
+                if newTitle { item.title = title }
                 item.changed = now()
                 change(item)
             }
@@ -369,8 +383,8 @@ public final class LibraryStore {
         try write(file, at: path)
         let time = now()
         let old = all[file.id]?.words ?? []
-        let item = Item(id: file.id, kind: kind, file: path, klipyID: nil,
-                        words: old + words.filter { !old.contains($0) }, added: time, changed: time)
+        let item = Item(id: file.id, kind: kind, file: path, klipyID: nil, words: old + words.filter { !old.contains($0) },
+                        title: title.isEmpty ? all[file.id]?.title ?? "" : title, added: time, changed: time)
         change(item)
         _ = checkFiles()
         return .added(item)
@@ -382,6 +396,15 @@ public final class LibraryStore {
         let new = Item.clean(words).filter { !item.words.contains($0) }
         guard !new.isEmpty else { return }
         item.words += new
+        item.changed = now()
+        change(item)
+    }
+
+    /// "Rename…" (D15 of YAZ-2919): the new title of your own item. An empty text clears it. The file keeps its name.
+    public func setTitle(_ text: String, of id: String) {
+        let title = Item.cleanTitle(text)
+        guard var item = all[id], !item.isRemoved, item.title != title else { return }
+        item.title = title
         item.changed = now()
         change(item)
     }
@@ -398,14 +421,10 @@ public final class LibraryStore {
         return item
     }
 
-    /// "Move to Trash" and "Remove from your GIFs" (D13): the file goes to the Trash, then the item gets `removed`.
-    /// A KLIPY item has no file. A file that is already gone does not stop the remove.
-    /// When the Trash refuses the file, the item stays and the error comes back.
-    public func remove(_ id: String) throws {
+    /// "Remove from your GIFs" (or memes) of a saved KLIPY item (D7, D13): the item gets `removed`, on all Macs.
+    /// It touches no file.
+    public func remove(_ id: String) {
         guard var item = all[id], !item.isRemoved else { return }
-        if let file = fileURL(of: item), FileManager.default.fileExists(atPath: file.path) {
-            try trash.moveToTrash(file)
-        }
         let time = now()
         item.removed = time
         item.changed = time

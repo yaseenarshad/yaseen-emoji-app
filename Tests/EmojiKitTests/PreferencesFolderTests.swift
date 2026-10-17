@@ -77,14 +77,14 @@ import Testing
 
         store.forgetWords()
         _ = store.setHotKey(You.Key(commandK))
-        _ = store.setPickMode("copyOnly")
+        _ = store.setPickMode("copyOnly", for: .gif)
         _ = store.setDefaultTone("\u{1F3FD}")
         #expect(try Data(contentsOf: otherURL) == otherBytes)
         #expect(folder.names(in: folder.defaultFolder) == ["you-A.json", "you-B.json"])
 
         // The file is easy to read in git: sorted keys and one value on each line.
         let text = try String(contentsOf: store.url, encoding: .utf8)
-        #expect(text.contains("\"forgotAt\" : ") && text.contains("\n    \"pickMode\" : {\n"))
+        #expect(text.contains("\"forgotAt\" : ") && text.contains("\n    \"pickModes\" : {\n      \"gif\" : {\n"))
     }
 
     /// "Forget learned words" on Mac A: A's merged view has no words at once, B clears its own words one time
@@ -135,11 +135,11 @@ import Testing
         #expect(app.settings.hotKey == controlOptionE && rig.prefs.hotKey == controlOptionE)
         let find = try #require(app.statusMenu.menu.item(withTitle: "Find an emoji"))
         #expect(find.keyEquivalent == "e" && find.keyEquivalentModifierMask == [.control, .option])
-        #expect(app.settings.pickMode == .copyOnly)
+        #expect(PickKind.allCases.allSatisfy { app.settings.choice($0).mode == .copyOnly })
         // A change on this Mac is newer than the pick mode of B. It goes into this Mac's file only.
-        app.settings.setPickMode(.paste)
-        #expect(app.store.own.settings.pickMode?.value == "paste")
-        #expect(app.store.you.settings.pickMode?.value == "paste")
+        app.settings.setPickMode(.paste, for: .gif)
+        #expect(app.store.own.settings.pickModes?["gif"]?.value == "paste" && app.store.own.settings.pickMode == nil)
+        #expect(app.store.you.settings.pickMode(.gif)?.value == "paste" && app.store.you.settings.pickMode(.emoji)?.value == "copyOnly")
 
         // B gets ⌘K, but a different app has it: the old key stays, and Settings shows the red line.
         await app.ready?.value

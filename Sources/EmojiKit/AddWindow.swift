@@ -27,6 +27,38 @@ enum AddSource: Equatable {
             return PasteReader.videoTypes.contains(type) ? "Pasted video" : "Pasted picture"
         }
     }
+
+    /// The first text of the Title box (D15 of YAZ-2919): the file name with no extension, `-` and `_` as spaces,
+    /// and no copy mark (` (1)`) at the end. `midwit-mba.png` gives `midwit mba`. A paste of bytes has no name: "".
+    var suggestedTitle: String {
+        guard case .file(let url) = self else { return "" }
+        return AddSource.title(fromName: url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// The camera and system names (`IMG_2231`, `Screenshot 2026-…`) start with one of these, then a digit, a space or the end.
+    static let machinePrefixes = ["img", "dsc", "dscn", "dscf", "pxl", "mvimg", "vid", "mvi", "gopr", "dji", "screenshot",
+                                  "screen shot", "screen recording", "cleanshot", "whatsapp image", "whatsapp video",
+                                  "photo", "image", "video", "untitled", "pasted", "clipboard", "download", "giphy", "tenor"]
+
+    /// The title of a file name, or "" for a name that a camera or the system gave.
+    static func title(fromName name: String) -> String {
+        var text = Item.cleanTitle(name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " "))
+        if let mark = text.range(of: #" ?\(\d+\)$"#, options: .regularExpression) { text.removeSubrange(mark) }
+        let lower = text.lowercased()
+        // Only digits and marks, a UUID, or a code name of the list (16 or more hex characters).
+        if !lower.contains(where: \.isLetter) { return "" }
+        if lower.range(of: #"^[0-9a-f]{8} ?[0-9a-f]{4} ?[0-9a-f]{4} ?[0-9a-f]{4} ?[0-9a-f]{12}$"#, options: .regularExpression) != nil
+            || lower.range(of: #"^[0-9a-f]{16,}$"#, options: .regularExpression) != nil {
+            return ""
+        }
+        // A camera word with digits after it, or with nothing after it. `photo booth fail` stays.
+        for prefix in machinePrefixes.sorted(by: { $0.count > $1.count }) where lower.hasPrefix(prefix) {
+            let rest = lower.dropFirst(prefix.count)
+            guard rest.first.map({ $0 == " " || $0.isNumber }) ?? true else { continue }
+            if rest.contains(where: \.isNumber) || !rest.contains(where: \.isLetter) { return "" }
+        }
+        return text
+    }
 }
 
 /// The items of a clipboard or of a drag, with their types. A protocol, so a test gives a fake clipboard
@@ -119,6 +151,10 @@ struct AddRow: Identifiable, Equatable {
     /// A small still picture of the file.
     var preview: NSImage?
     var kind = ItemKind.gif
+    /// The text of the Title box (D15 of YAZ-2919). It starts with `AddSource.suggestedTitle`.
+    var title: String
+    /// True after you typed in the Title box. Then a duplicate does not put the title of its item in the box.
+    var titleWasTyped = false
     /// The text of the words box.
     var words = ""
     /// The red line: the reason of a refused file, "Type one word first.", or an error of the add.
@@ -129,6 +165,12 @@ struct AddRow: Identifiable, Equatable {
     var isAdding = false
     /// True after the text reader read this file one time (D8).
     var wasRead = false
+
+    init(id: Int, source: AddSource) {
+        self.id = id
+        self.source = source
+        title = source.suggestedTitle
+    }
 
     var name: String { source.name }
     /// The grey line of a still picture from the clipboard.
@@ -247,6 +289,13 @@ final class AddModel: ObservableObject {
         }
     }
 
+    func setTitle(_ text: String, of id: Int) {
+        change(id) { row in
+            row.title = text
+            row.titleWasTyped = true
+        }
+    }
+
     func setWords(_ text: String, of id: Int) {
         change(id) { row in
             row.words = text
@@ -262,7 +311,7 @@ final class AddModel: ObservableObject {
 
     /// "Add" (D12): needs one word. The file goes into `gifs/` or `memes/` off the main thread (owner note on
     /// YAZ-2927), then `LibraryStore.add` saves the list on the main thread. The row goes away, and the item is
-    /// first in "Your GIFs" or "Your memes". A duplicate adds only its new words.
+    /// first in "Your GIFs" or "Your memes". A duplicate adds only its new words, and a new title that is not empty.
     func add(row id: Int) {
         guard let row = row(id), row.state == .ready, !row.isAdding, let file = row.file else { return }
         let words = AddModel.words(in: row.words)
@@ -275,6 +324,7 @@ final class AddModel: ObservableObject {
             row.problem = nil
         }
         let kind = row.kind
+        let title = row.title
         // `LibraryStore` is not safe for two threads, and the panel reads it on the main thread.
         // Thus only the write of the file runs off the main thread.
         let target = library.place(of: file, as: kind)
@@ -285,16 +335,16 @@ final class AddModel: ObservableObject {
                         try LibraryStore.writeMediaFile(file.bytes, to: target)
                     }.value
                 }
-                self?.finishAdd(id, file, kind: kind, words: words)
+                self?.finishAdd(id, file, kind: kind, words: words, title: title)
             } catch {
                 self?.failAdd(id, error)
             }
         })
     }
 
-    private func finishAdd(_ id: Int, _ file: PreparedFile, kind: ItemKind, words: [String]) {
+    private func finishAdd(_ id: Int, _ file: PreparedFile, kind: ItemKind, words: [String], title: String) {
         do {
-            let result = try library.add(file, as: kind, words: words)
+            let result = try library.add(file, as: kind, words: words, title: title)
             rows.removeAll { $0.id == id }
             if rows.isEmpty { isAskingToClose = false }
             markDuplicates()
@@ -317,13 +367,17 @@ final class AddModel: ObservableObject {
     }
 
     /// Finds the rows whose file is in the list already: two pastes of the same GIF, or a GIF of the list.
+    /// A duplicate keeps the kind of its item, and shows its title until you type a different one.
     private func markDuplicates() {
         for place in rows.indices {
             guard let file = rows[place].file else { continue }
             let existing = library.item(file.id).flatMap { $0.isRemoved ? nil : $0 }
             if rows[place].existing != existing {
                 rows[place].existing = existing
-                if let existing { rows[place].kind = existing.kind }
+                if let existing {
+                    rows[place].kind = existing.kind
+                    if !rows[place].titleWasTyped { rows[place].title = existing.title }
+                }
             }
         }
     }
@@ -557,6 +611,10 @@ struct AddRowView: View {
                     Text(AddModel.gettingReadyText).foregroundStyle(.secondary)
                 }
                 if row.state == .ready {
+                    TextField("Title", text: Binding(get: { row.title }, set: { model.setTitle($0, of: row.id) }),
+                              prompt: Text("Title, for example: midwit mba"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { model.add(row: row.id) }
                     HStack {
                         Picker("Kind", selection: Binding(get: { row.kind }, set: { model.setKind($0, of: row.id) })) {
                             Text("GIF").tag(ItemKind.gif)

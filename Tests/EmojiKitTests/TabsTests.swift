@@ -50,7 +50,12 @@ import Testing
         let online = FakeOnline()
         let withKey = try PickRig(online: online)
         withKey.session.open()
+        withKey.session.select(tab: .gifs)
+        #expect(withKey.session.placeholder == "Search KLIPY")
+        // "Search KLIPY in Memes" is off at the start (D14 update of YAZ-2919).
         withKey.session.select(tab: .memes)
+        #expect(withKey.session.placeholder == "Search your memes")
+        withKey.prefs.setSearchesKlipy(true, for: .meme)
         #expect(withKey.session.placeholder == "Search KLIPY")
         withKey.session.select(tab: .emoji)
         #expect(withKey.session.placeholder == "Search emoji")
@@ -136,9 +141,9 @@ import Testing
         session.select(tab: .gifs)
 
         // Your GIF in "Your most used", and the same GIF in "Your GIFs".
-        #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .hideFromMostUsed, .showInFinder, .moveToTrash, .addNew])
+        #expect(session.menuActions(at: 0) == [.addWord, .rename, .copyOnly, .hideFromMostUsed, .showInFinder, .addNew])
         let inList = try #require(session.items.indices.first { $0 > 0 && session.items[$0] == .own(gif) })
-        #expect(session.menuActions(at: inList) == [.addWord, .copyOnly, .showInFinder, .moveToTrash, .addNew])
+        #expect(session.menuActions(at: inList) == [.addWord, .rename, .copyOnly, .showInFinder, .addNew])
         // The saved KLIPY item shows in "Your GIFs".
         let savedPlace = try rig.place(of: "klipy:saved-1")
         #expect(session.menuActions(at: savedPlace) == [.addWord, .copyOnly, .removeFromYours(.gif), .addNew])
@@ -159,6 +164,33 @@ import Testing
         session.setQuery("")
         #expect(session.menuActions(at: 0) == [.addWord, .copyOnly])
         #expect(session.menuActionsOutsideItems.isEmpty)
+    }
+
+    /// D15 of YAZ-2894 for each item of "Your most used": a KLIPY GIF that you picked but did not save gets
+    /// "Hide from Your most used". Yaseen: "and there's no option to forget the gif?" The tile leaves the section,
+    /// the next item fills its place, and the hide is the key `klipy:<slug>` in `you-<Mac>.json`.
+    @Test func aPickedKLIPYGIFCanLeaveYourMostUsed() throws {
+        let online = FakeOnline()
+        let slugs = (0..<7).map { "picked-\($0)" }
+        for slug in slugs { online.known[slug] = FakeOnline.gif(slug) }
+        let rig = try PickRig(online: online)
+        // picked-0 has the most uses, picked-6 the fewest: only 6 fit in "Your most used".
+        for (place, slug) in slugs.enumerated() {
+            for _ in 0..<(slugs.count - place) { rig.store.recordPick("klipy:\(slug)", query: "") }
+        }
+        let session = rig.session
+        session.open()
+        session.select(tab: .gifs)
+        #expect(session.mostUsedItems == 0..<6)
+        #expect(session.items.prefix(6).map(\.key) == slugs.prefix(6).map { "klipy:\($0)" })
+        #expect(session.menuActions(at: 0) == [.saveToYours(.gif), .copyOnly, .hideFromMostUsed, .addNew])
+
+        session.perform(.hideFromMostUsed)
+        #expect(rig.store.you.isHidden("klipy:picked-0"))
+        #expect(session.isOpen && session.mostUsedItems == 0..<6)
+        #expect(session.items.prefix(6).map(\.key) == slugs.dropFirst().map { "klipy:\($0)" })
+        // The uses stay.
+        #expect(rig.store.you.uses["klipy:picked-0"]?.count == 7)
     }
 
     /// D7: a pick of a KLIPY item counts `klipy:<slug>`, also when it is not saved. "Yours" then shows it for that text.
@@ -227,7 +259,8 @@ import Testing
         #expect(rig.store.you.added.isEmpty && rig.store.you.uses.isEmpty)
     }
 
-    /// The emoji search budget stays 2 ms (D5). The same search over 2,000 made-up items, with 3 words each.
+    /// The emoji search budget stays 2 ms (D5). The same search over 2,000 made-up items, with 3 words each,
+    /// and a title of 2 words on every second item (D15 of YAZ-2919).
     /// The number goes into the Result comment. The bound here is generous, so a slow CI computer does not fail.
     @Test func theTimeOfASearchOverTwoThousandItems() {
         let vocabulary = ["dance", "party", "happy", "sad", "cat", "dog", "lol", "fine", "this", "is", "wow", "omg",
@@ -242,7 +275,8 @@ import Testing
             let words = (0..<3).map { _ in vocabulary[next() % vocabulary.count] + (next() % 3 == 0 ? "\(next() % 50)" : "") }
             let item = Item(id: String(format: "%016x", place), kind: .gif, file: "gifs/\(place).gif", klipyID: nil,
                             words: words, added: Date(timeIntervalSince1970: Double(place)), changed: Date())
-            return TileEntry(item: .own(item), words: words, order: place)
+            let title = place % 2 == 0 ? "\(vocabulary[next() % vocabulary.count]) \(vocabulary[next() % vocabulary.count])" : ""
+            return TileEntry(item: .own(item), words: words, title: title, order: place)
         }
         var you = You()
         for entry in entries.prefix(300) { you.uses[entry.key] = You.Use(count: entry.order % 20 + 1, last: Date()) }
@@ -283,7 +317,7 @@ import Testing
         #expect(lines.count == 4 && lines[3].hasPrefix("notes.txt: ") && lines[3].hasSuffix(MediaImport.wrongTypeText))
 
         let library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
-                                   mediaFolder: folder.defaultFolder, trash: FakeTrash(folder: folder.url))
+                                   mediaFolder: folder.defaultFolder)
         library.load()
         #expect(library.items(.gif).map(\.words) == [["dance", "party"]])
         #expect(library.items(.meme).map(\.words) == [["happy", "dance"]])

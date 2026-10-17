@@ -59,8 +59,7 @@ public enum AddCommand {
         let folders = PreferencesFolder(defaultFolder: defaultFolder, macName: prefs.macName(computerName: computerName))
         let place = folders.resolve(chosen: prefs.preferencesFolder)
         let media = MediaFolder.resolve(chosen: prefs.mediaFolder, preferencesFolder: place.folder)
-        let library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder,
-                                   trash: SystemTrash())
+        let library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder)
         library.load()
         var code: Int32 = 0
         for file in files {

@@ -4,6 +4,9 @@ Yaseen Emoji ships one data file, `Sources/EmojiKit/Resources/emoji.json`.
 `scripts/make-emoji-data.swift` makes it from the five sources below. The app has
 no outside code. The licenses of the sources follow.
 
+The GIFs and Memes tabs also use one online service, KLIPY. See
+[Online service: KLIPY](#online-service-klipy) at the end of this file.
+
 | Source | Version | What the app uses | License |
 | - | - | - | - |
 | [Unicode `emoji-test.txt`](https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt) | Emoji 17.0 | the skin tone forms | Unicode-3.0 |
@@ -138,3 +141,25 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## Online service: KLIPY
+
+The GIFs and Memes tabs search [KLIPY](https://klipy.com) when you add your own
+KLIPY key in Settings. Without a key, the app sends nothing to KLIPY.
+
+- **What the app sends:** the search text, the page number, and your key, to
+  `https://api.klipy.com/api/v1/<key>/gifs/search`, `.../static-memes/search`,
+  `.../gifs/items` and `.../static-memes/items`. It sends no user ID and asks for no ads.
+- **What the app gets:** the GIFs and memes of KLIPY, from `static.klipy.com`, with
+  the URLs exactly as KLIPY gives them. The app keeps them in memory only. A pick
+  downloads one temp file into `~/Library/Caches/Yaseen Emoji/paste/` for the paste.
+  The app deletes it after 5 minutes and at quit.
+- **Your saved KLIPY items** keep only their KLIPY ID (the slug) in your list, never the file.
+- **Attribution:** the search box says "Search KLIPY" when KLIPY results show, each
+  KLIPY tile has a small "KLIPY" mark, and the results stay in their own section,
+  "From KLIPY", in KLIPY's order. These follow the
+  [attribution rules](https://docs.klipy.com/attribution.md) and the
+  [integration requirements](https://docs.klipy.com/integration-requirements.md)
+  of KLIPY (read on 16 Oct 2026).
+- **The content** of KLIPY belongs to KLIPY and to its owners. The MIT license of
+  Yaseen Emoji does not apply to it. KLIPY's own terms apply to your key.
