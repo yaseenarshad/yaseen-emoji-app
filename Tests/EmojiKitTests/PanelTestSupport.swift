@@ -133,11 +133,16 @@ final class FakeLater: Later {
 @MainActor
 final class FakePanel: PickPanel {
     private(set) var calls: [String] = []
+    /// The `selectQuery` of each `comeBack` (D20 of YAZ-2919).
+    private(set) var comeBackSelects: [Bool] = []
 
     func show() { calls.append("show") }
     func hide() { calls.append("hide") }
     func stepAside() { calls.append("stepAside") }
-    func comeBack() { calls.append("comeBack") }
+    func comeBack(selectQuery: Bool) {
+        calls.append("comeBack")
+        comeBackSelects.append(selectQuery)
+    }
     func reload() {}
     /// New KLIPY results: the grid keeps its scroll.
     func update() { calls.append("update") }
@@ -171,9 +176,13 @@ final class PickRig {
     let fileWork = ImmediateFileWork()
 
     /// `sharing`: the folder of an earlier rig, for a new start of the app over the same files (D18 of YAZ-2919).
-    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil, sharing: TempFolder? = nil) throws {
+    /// `afterEnter`: the v0.1 tests read Enter as "paste and close", so the rig sets "After Enter: Close" (D20 of
+    /// YAZ-2919). Nil keeps the start value, Stay open.
+    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil, sharing: TempFolder? = nil,
+         afterEnter: AfterEnter? = .close) throws {
         folder = try sharing ?? TempFolder()
         prefs = Prefs(defaults: defaults)
+        if let afterEnter { prefs.afterEnter = afterEnter }
         store = YouStore(url: folder.youFile)
         store.load()
         library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),

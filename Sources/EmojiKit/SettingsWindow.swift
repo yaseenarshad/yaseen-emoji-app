@@ -64,6 +64,7 @@ struct SettingsView: View {
         case .defaultTone: toneRow
         case .startAtLogin: startAtLoginRow
         case .accessibility: accessibilityRow
+        case .afterEnter: afterEnterRow
         case .enterEmojis: enterRow(.emoji)
         case .enterGIFs: enterRow(.gif)
         case .enterMemes: enterRow(.meme)
@@ -97,6 +98,24 @@ struct SettingsView: View {
             if let problem = model.hotKeyProblem {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
+        }
+    }
+
+    /// D20 of YAZ-2919: after a paste, the panel stays open or closes. The grey line tells what the keys do now.
+    private var afterEnterRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("After Enter", selection: Binding(
+                get: { model.afterEnter },
+                set: { model.setAfterEnter($0) }
+            )) {
+                ForEach(AfterEnter.allCases, id: \.self) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            Text(model.afterEnterText)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

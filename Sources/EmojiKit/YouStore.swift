@@ -57,6 +57,8 @@ public struct You: Codable, Equatable, Sendable {
         /// and "Keep it on the clipboard after a paste" of each kind. An older file has none.
         public var pickModes: [String: Dated<String>]?
         public var keepOnClipboard: [String: Dated<Bool>]?
+        /// "After Enter" (D20 of YAZ-2919), `AfterEnter.rawValue`. An older file has none: then the start value, Stay open.
+        public var afterEnter: Dated<String>?
         /// "" (yellow) or one tone mark of `SkinTone.all`.
         public var defaultTone: Dated<String>?
         /// "Search KLIPY in GIFs" and "Search KLIPY in Memes" (D14 update of YAZ-2919). An older file has none.
@@ -178,6 +180,7 @@ public struct You: Codable, Equatable, Sendable {
             merged.settings.pickMode = newest(merged.settings.pickMode, file.settings.pickMode)
             merged.settings.pickModes = newestEach(merged.settings.pickModes, file.settings.pickModes)
             merged.settings.keepOnClipboard = newestEach(merged.settings.keepOnClipboard, file.settings.keepOnClipboard)
+            merged.settings.afterEnter = newest(merged.settings.afterEnter, file.settings.afterEnter)
             merged.settings.defaultTone = newest(merged.settings.defaultTone, file.settings.defaultTone)
             merged.settings.klipyGIFs = newest(merged.settings.klipyGIFs, file.settings.klipyGIFs)
             merged.settings.klipyMemes = newest(merged.settings.klipyMemes, file.settings.klipyMemes)
@@ -381,6 +384,15 @@ public final class YouStore {
     func setKeepsOnClipboard(_ keep: Bool, for kind: PickKind) -> Date {
         let time = now()
         own.settings.keepOnClipboard = (own.settings.keepOnClipboard ?? [:]).merging([kind.rawValue: You.Dated(keep, at: time)]) { $1 }
+        changed()
+        return time
+    }
+
+    /// A new "After Enter" in Settings (D20 of YAZ-2919). Returns the time of the change.
+    @discardableResult
+    func setAfterEnter(_ value: String) -> Date {
+        let time = now()
+        own.settings.afterEnter = You.Dated(value, at: time)
         changed()
         return time
     }

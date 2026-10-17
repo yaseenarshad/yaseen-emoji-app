@@ -25,7 +25,7 @@ final class BackgroundFileWork: FileWork {
 }
 
 /// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16;
-/// D4, D14, D16 and D19 of YAZ-2919).
+/// D4, D14, D16, D19 and D20 of YAZ-2919).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -66,6 +66,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var isRecording = false
     /// The red line below the hotkey row.
     @Published private(set) var hotKeyProblem: String?
+    /// "After Enter" (D20 of YAZ-2919): the panel stays open after a paste, or closes.
+    @Published private(set) var afterEnter: AfterEnter
     /// "When you press Enter" (D16 of YAZ-2919): the mode and "Keep it on the clipboard after a paste" of each kind.
     @Published private(set) var enter: [PickKind: EnterChoice] = [:]
     @Published private(set) var defaultTone: String
@@ -159,6 +161,7 @@ final class SettingsModel: ObservableObject {
         self.keyStore = keyStore
         self.fileWork = fileWork
         page = prefs.settingsPage
+        afterEnter = prefs.afterEnter
         hotKey = prefs.hotKey
         defaultTone = prefs.defaultTone
         klipyGIFs = prefs.searchesKlipy(.gif)
@@ -232,7 +235,27 @@ final class SettingsModel: ObservableObject {
         return true
     }
 
-    // MARK: When you press Enter (D2; D16 of YAZ-2919) and the default skin tone (D9)
+    // MARK: When you press Enter (D2; D16, D20 of YAZ-2919) and the default skin tone (D9)
+
+    /// "After Enter: Stay open | Close". The other Macs get it through this Mac's history file (D16).
+    func setAfterEnter(_ value: AfterEnter) {
+        guard value != prefs.afterEnter else { return }
+        prefs.afterEnter = value
+        prefs.afterEnterChangedAt = store.setAfterEnter(value.rawValue)
+        afterEnter = value
+    }
+
+    /// The grey line below "After Enter".
+    var afterEnterText: String { SettingsModel.afterEnterText(afterEnter) }
+
+    static func afterEnterText(_ value: AfterEnter) -> String {
+        switch value {
+        case .stayOpen:
+            return "Enter pastes, and the panel stays open for the next one. Shift+Enter pastes and closes. Esc closes."
+        case .close:
+            return "Enter pastes and closes. Shift+Enter pastes, and the panel stays open."
+        }
+    }
 
     /// What Enter does for one kind.
     struct EnterChoice: Equatable {
@@ -303,6 +326,13 @@ final class SettingsModel: ObservableObject {
     /// and the next change of the files tries again. The app calls this after a load or a reload.
     func applySynced() {
         let synced = store.you.settings
+        // An old file has no `afterEnter`: this Mac keeps its value, or the start value Stay open.
+        if let after = synced.afterEnter, isNewer(after.at, than: prefs.afterEnterChangedAt),
+           let value = AfterEnter(rawValue: after.value) {
+            prefs.afterEnter = value
+            prefs.afterEnterChangedAt = after.at
+            afterEnter = value
+        }
         for kind in PickKind.allCases {
             // A kind with no value of its own uses the v0.1 `pickMode`, so an old file still gives its mode.
             if let mode = synced.pickMode(kind), isNewer(mode.at, than: prefs.pickModeChangedAt(kind)),

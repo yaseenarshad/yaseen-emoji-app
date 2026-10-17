@@ -14,11 +14,11 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 | Key | What it does |
 | - | - |
 | ⌘E | Open the panel. Press it again to close the panel. You can change this key in Settings. |
-| Enter, or a click | Paste the emoji with the blue box, and close. |
-| Shift+Enter | Paste, and keep the panel open. |
+| Enter, or a click | Paste the emoji with the blue box. The panel stays open, with the search text selected: Enter again pastes it again, and a new word replaces the text. |
+| Shift+Enter | Paste, and close. |
 | ⌘C | Copy the emoji only, and close. |
 | Arrow keys | Move the blue box. |
-| Esc | Close, with no paste. |
+| Esc | Close. |
 | Right-click | "Add a word…" and "Copy only". In "Your most used", also "Hide from Your most used". |
 | Press and drag | Move the panel, from any part. The text in the search box still selects. The next open puts the panel in the middle again. |
 
@@ -27,7 +27,7 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 The menu bar icon (a smiley) has "Find an emoji", "Add a GIF or meme…", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has a list of pages on the left. It opens on the page that you used last on this Mac:
 
 - **General:** the hotkey, the default skin tone (the only skin tone choice), "Start at login", and the Accessibility state.
-- **Enter and paste:** "When you press Enter" for emojis, GIFs and memes: Paste or Copy only, and "Keep it on the clipboard after a paste".
+- **Enter and paste:** "After Enter": Stay open (the start value) or Close. Close gives the keys of v0.1: Enter pastes and closes, Shift+Enter stays open. Then "When you press Enter" for emojis, GIFs and memes: Paste or Copy only, and "Keep it on the clipboard after a paste".
 - **GIFs and memes:** the KLIPY key, "Search KLIPY in GIFs", "Search KLIPY in Memes", and the GIFs and memes folder with "Show in Finder".
 - **Your history:** "Hidden from Your most used" with "Show them again", and "Forget learned words".
 - **Sync folder:** the preferences folder with "Show in Finder".
@@ -38,7 +38,7 @@ To paste for you, the app needs the Accessibility permission. It asks one time, 
 
 Your history is in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. Each Mac writes its own file there, `you-<Mac name>.json`.
 
-To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "When you press Enter", the default skin tone and the two KLIPY switches. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Reset to Mac Default Folder" goes back to the default folder. It and "Forget learned words" ask you to type a word first ("reset" or "forget").
+To share your history and settings between Macs, point each Mac at one folder that syncs, for example a folder in a git repository. Use Settings → "Set preferences folder…". Each Mac adds up the files of all Macs: your uses, your learned and added words, the hidden emojis, and the hotkey, "After Enter", "When you press Enter", the default skin tone and the two KLIPY switches. The newest change of a setting wins. "Start at login", Accessibility and the folder path stay on each Mac. "Reset to Mac Default Folder" goes back to the default folder. It and "Forget learned words" ask you to type a word first ("reset" or "forget").
 
 ## Build and install
 
