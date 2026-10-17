@@ -126,12 +126,15 @@ import UniformTypeIdentifiers
 
     /// One failure of the network or of KLIPY, and its error (D2 of YAZ-2919).
     enum Failure: String, CaseIterable, Sendable {
-        case unauthorized, forbidden, tooMany, serverError, timeOut, offline, notJSON, resultFalse
+        case unauthorized, forbidden, wrongKey, notFound, tooMany, serverError, timeOut, offline, notJSON, resultFalse
 
         var reply: StubReply {
             switch self {
             case .unauthorized: return .json(#"{"error": {"isError": true, "errorMessage": "Unauthorized"}}"#, status: 401)
             case .forbidden: return .json("{}", status: 403)
+            // The real answer of KLIPY to a wrong key (16 Oct 2026).
+            case .wrongKey: return .json(#"{"result":false,"errors":{"message":["The provided API key is invalid."]}}"#, status: 404)
+            case .notFound: return .json("{}", status: 404)
             case .tooMany: return .json("{}", status: 429)
             case .serverError: return .json("{}", status: 500)
             case .timeOut: return .fail(.timedOut)
@@ -143,10 +146,10 @@ import UniformTypeIdentifiers
 
         var error: OnlineError {
             switch self {
-            case .unauthorized, .forbidden: return .refused
+            case .unauthorized, .forbidden, .wrongKey: return .refused
             case .tooMany: return .busy
             case .timeOut, .offline: return .unreachable
-            case .serverError, .notJSON, .resultFalse: return .badResponse
+            case .notFound, .serverError, .notJSON, .resultFalse: return .badResponse
             }
         }
     }

@@ -179,8 +179,21 @@ final class KlipyLibrary: OnlineLibrary {
         case 200..<300: return data
         case 401, 403: throw OnlineError.refused
         case 429: throw OnlineError.busy
+        // A wrong key gives 404 with `{"result":false,"errors":{"message":["The provided API key is invalid."]}}`
+        // (a real request on 16 Oct 2026). The docs do not say this.
+        case 404 where isKeyError(data): throw OnlineError.refused
         default: throw OnlineError.badResponse
         }
+    }
+
+    /// True for KLIPY's answer to a wrong key: an error message that names the API key.
+    static func isKeyError(_ data: Data) -> Bool {
+        struct Answer: Decodable {
+            struct Errors: Decodable { let message: [String]? }
+            let errors: Errors?
+        }
+        let messages = (try? JSONDecoder().decode(Answer.self, from: data))?.errors?.message ?? []
+        return messages.contains { $0.localizedCaseInsensitiveContains("api key") }
     }
 
     static func decode(_ data: Data) throws -> KlipyList {
