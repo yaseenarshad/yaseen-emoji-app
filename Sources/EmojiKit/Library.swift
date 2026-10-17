@@ -81,6 +81,12 @@ public struct Item: Codable, Equatable, Sendable {
         return result
     }
 
+    /// Typed words, in the words box of the add window or in `--add-media --words`: split at spaces and commas,
+    /// then `clean`. "Dance, party" gives "dance" and "party".
+    static func words(typed text: String) -> [String] {
+        clean(text.split { $0.isWhitespace || $0 == "," }.map(String.init))
+    }
+
     /// A title as the list keeps it (D15 of YAZ-2919): trimmed, one space between words, the case as typed.
     static func cleanTitle(_ text: String) -> String {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")

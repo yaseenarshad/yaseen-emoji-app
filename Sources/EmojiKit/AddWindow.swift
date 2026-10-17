@@ -214,7 +214,7 @@ final class AddModel: ObservableObject {
         self.readText = readText
     }
 
-    /// The work of 1B, off the main thread (D5).
+    /// `MediaImport.prepare` of a file or of the bytes of a paste, off the main thread (D5).
     nonisolated static func prepare(_ source: AddSource) async throws -> PreparedFile {
         switch source {
         case .file(let url): return try await MediaImport.prepare(url)
@@ -314,7 +314,7 @@ final class AddModel: ObservableObject {
     /// first in "Your GIFs" or "Your memes". A duplicate adds only its new words, and a new title that is not empty.
     func add(row id: Int) {
         guard let row = row(id), row.state == .ready, !row.isAdding, let file = row.file else { return }
-        let words = AddModel.words(in: row.words)
+        let words = Item.words(typed: row.words)
         guard !words.isEmpty else {
             change(id) { $0.problem = AddModel.needsWordText }
             return
@@ -359,11 +359,6 @@ final class AddModel: ObservableObject {
             row.isAdding = false
             row.problem = error.localizedDescription
         }
-    }
-
-    /// The text of the words box as words: split at spaces and commas, then the rules of the list (`Item.clean`).
-    static func words(in text: String) -> [String] {
-        Item.clean(text.split { $0.isWhitespace || $0 == "," }.map(String.init))
     }
 
     /// Finds the rows whose file is in the list already: two pastes of the same GIF, or a GIF of the list.
