@@ -24,6 +24,9 @@ protocol OnlineResults: AnyObject {
     /// by its ID (D7). Nil when it is not known (yet): then the provider asks KLIPY for it, with the other unknown
     /// slugs of the same kind in one call, and calls `onChange`. An item that KLIPY deleted stays nil, with no line.
     func item(_ slug: String, kind: ItemKind) -> OnlineItem?
+    /// The item of a card (D18 of YAZ-2919), with no request: the item that this session knows, else the card.
+    /// Nil when KLIPY deleted it and this Mac has no file of it: then the tile does not show, and the card stays.
+    func item(for card: KlipyCard) -> OnlineItem?
     /// The "From KLIPY" section for this search text (normalized, not empty) in the tab of `kind`.
     /// The provider starts its own search after the pause of D11, and calls `onChange` with the answer.
     func section(for text: String, kind: ItemKind) -> OnlineSection?
@@ -32,8 +35,12 @@ protocol OnlineResults: AnyObject {
     /// The blue box is on this KLIPY item now, or on no KLIPY item. After 300 ms on one item, the provider downloads
     /// its paste file. A move to a different item stops that download.
     func selectionChanged(to item: OnlineItem?)
-    /// The downloaded paste file of `item` (D6), or nil when it is not ready.
+    /// The file that a pick of `item` pastes: the kept file of D18, else the downloaded paste file (D6),
+    /// or nil when it is not ready.
     func pasteFile(for item: OnlineItem) -> URL?
+    /// A pick of `item` (D18 of YAZ-2919): its paste file moves into the kept files, or its kept file gets the new
+    /// last use. Gives the kept file, or nil when there is no file to keep.
+    func keepFile(of item: OnlineItem) -> URL?
     /// Gives the paste file of `item` when it is ready, or nil after 3 s or on a failure.
     func getPasteFile(for item: OnlineItem, done: @escaping @MainActor (URL?) -> Void)
     /// The still picture of a KLIPY tile, or nil while it loads.
@@ -43,7 +50,7 @@ protocol OnlineResults: AnyObject {
     /// The KLIPY GIF tiles on the screen, in the order of the grid. Their moving pictures load, at most 4 at a time.
     /// The loads of the other tiles stop. An empty list stops all.
     func wantMoving(_ items: [OnlineItem])
-    /// Each open of the panel: tries again what failed.
+    /// Each open of the panel: tries again what failed, and lists the kept files again.
     func refresh()
     /// Each close of the panel: stops the search that waits, and the downloads.
     func stop()

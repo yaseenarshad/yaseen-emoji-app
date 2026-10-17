@@ -1,8 +1,8 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// One GIF or meme of KLIPY (D1 of YAZ-2919). It holds only the URLs, never the file (D7).
-/// The URLs stay exactly as KLIPY gives them (KLIPY's rule 1).
+/// One GIF or meme of KLIPY (D1 of YAZ-2919). It holds only the URLs, never the file.
+/// The URLs stay exactly as KLIPY gives them (KLIPY's rule 1). A card (D18) keeps the same fields.
 struct OnlineItem: Equatable, Sendable, Identifiable {
     /// The KLIPY slug, for example `hello-hi-662`. It is the `klipyID` of D3 and D7,
     /// because the items call of KLIPY takes slugs, not the number ID.
@@ -29,6 +29,25 @@ struct OnlineItem: Equatable, Sendable, Identifiable {
 
     /// The key of the pick counts and the learned words in `you-<Mac>.json` (D7 of YAZ-2919).
     var youKey: String { "klipy:\(id)" }
+}
+
+extension OnlineItem {
+    /// The item of a card (D18 of YAZ-2919): the tile shows at once, with no request.
+    init(card: KlipyCard) {
+        self.init(id: card.slug, number: nil, kind: card.kind, title: card.title, still: card.still, preview: card.preview,
+                  file: card.file,
+                  fileType: UTType(card.fileType) ?? UTType(filenameExtension: card.fileExtension) ?? .data,
+                  fileExtension: card.fileExtension, width: card.width, height: card.height, bytes: card.bytes)
+    }
+}
+
+extension KlipyCard {
+    /// The card of a KLIPY item that you used (D18 of YAZ-2919).
+    init(_ item: OnlineItem, lastUsed: Date) {
+        self.init(slug: item.id, kind: item.kind, title: item.title, still: item.still, preview: item.preview, file: item.file,
+                  fileType: item.fileType.identifier, fileExtension: item.fileExtension, width: item.width,
+                  height: item.height, bytes: item.bytes, lastUsed: lastUsed)
+    }
 }
 
 /// One page of KLIPY search results, in KLIPY's order.
@@ -361,7 +380,7 @@ final class SearchDebouncer {
 // MARK: The paste file
 
 /// The temp files for the paste of a KLIPY item (D6 of YAZ-2919): `<cache>/paste/<uuid>/<id>.<ext>`.
-/// They are the only copies of KLIPY files (D7). `cleanUp` deletes them after 5 minutes, and at quit.
+/// A pick moves its file into `KlipyFiles` (D18). `cleanUp` deletes the rest after 5 minutes, and at quit.
 final class PasteFiles: Sendable {
     /// How long a paste file stays.
     static let keep: TimeInterval = 5 * 60

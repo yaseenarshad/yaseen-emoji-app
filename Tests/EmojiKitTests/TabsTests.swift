@@ -202,7 +202,8 @@ import Testing
     }
 
     /// D7: a pick of a KLIPY item counts `klipy:<slug>`, also when it is not saved. "Yours" then shows it for that text.
-    /// "Save to your GIFs" keeps only its slug. With no KLIPY part, a saved KLIPY item does not show.
+    /// D18: the pick keeps its card. A KLIPY item that an earlier build saved by its slug keeps "Remove from your GIFs".
+    /// With no KLIPY part, a saved KLIPY item does not show.
     @Test func aKLIPYPickCountsItsSlug() throws {
         let folder = try TempFolder()
         let file = folder.url.appendingPathComponent("found-2.gif")
@@ -221,12 +222,13 @@ import Testing
         session.enter(shift: false)
         #expect(rig.store.you.uses["klipy:found-2"]?.count == 1)
         #expect(rig.store.you.learned["cat"]?["klipy:found-2"]?.count == 1)
+        #expect(rig.library.card("found-2")?.title == "found-2")
 
         session.open()
         session.select(tab: .gifs)
         session.setQuery("cat")
         #expect(session.lines == [.title("Yours"), .cells(0..<1), .title("From KLIPY"), .cells(1..<2)])
-        session.saveToYours(.online(found))
+        rig.library.saveKlipy("found-2", kind: .gif)
         #expect(rig.library.item(Item.klipyItemID("found-2"))?.file == nil)
         #expect(rig.library.item(Item.klipyItemID("found-2"))?.klipyID == "found-2")
         session.removeFromYours(.online(found))

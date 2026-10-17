@@ -242,6 +242,8 @@ final class PickSession {
     private let groups: [(name: String, emojis: [Emoji])]
     /// The search entries of the GIFs and memes of each tab, newest first. Made again at each open and after a change.
     private var tileEntries: [ItemKind: [TileEntry]] = [:]
+    /// The search entries of the cards of each tab (D18 of YAZ-2919), the last use first. Made with `tileEntries`.
+    private var cardEntryLists: [ItemKind: [TileEntry]] = [:]
 
     /// `catalog` is the list after the draw check: only the emojis that this Mac can draw.
     init(catalog: [Emoji], store: YouStore, library: LibraryStore, prefs: Prefs, paster: Paster,
@@ -281,7 +283,7 @@ final class PickSession {
         willOpen()
         online?.refresh()
         // The lists of the other Macs can have new items or new removes.
-        tileEntries = [:]
+        forgetEntries()
         thumbnails?.retryFailed()
         thumbnails?.removeStills(ofRemoved: library.all.values)
         rebuild()
@@ -341,7 +343,7 @@ final class PickSession {
 
     /// A KLIPY switch changed: the tabs use it at once. The saved and learned KLIPY items go, or come back.
     func klipySwitchChanged() {
-        tileEntries = [:]
+        forgetEntries()
         guard isOpen, tab != .emoji, question == nil else { return }
         stopWaiting()
         rebuild(keeping: selectedItem)
@@ -480,13 +482,20 @@ final class PickSession {
 
     /// The paste starts before the save: with a full `you.json` (5,000 learned pairs)
     /// the save takes about 23 ms in a release build, and the panel must not wait for it.
+    /// A pick of a KLIPY item (D18 of YAZ-2919) moves its file into the kept files first, so the clipboard gets the
+    /// kept file, not the temp file. After the paste starts, its card goes into the list with the new last use.
     private func deliver(_ item: PickItem, _ clip: Paster.Clip, _ delivery: Delivery) {
         let key = pickKey(item)
         let query = self.query
+        let clip = keptClip(of: item) ?? clip
+        func record() {
+            store.recordPick(key, query: query)
+            if case .online(let found) = item { useCard(found) }
+        }
         guard case .paste(let stayOpen) = delivery else {
             close()
             paster.deliver(clip, paste: false)
-            store.recordPick(key, query: query)
+            record()
             return
         }
         // The mode and the Keep value of the kind of the item (D16 of YAZ-2919).
@@ -495,7 +504,7 @@ final class PickSession {
         guard stayOpen else {
             close()
             paster.deliver(clip, paste: paste, keep: keep)
-            store.recordPick(key, query: query)
+            record()
             return
         }
         if paste {
@@ -507,9 +516,21 @@ final class PickSession {
         } else {
             paster.deliver(clip, paste: false)
         }
-        store.recordPick(key, query: query)
+        record()
         // The list does not move while the panel stays open, so the blue box stays where you
         // look. The new use and the learned word change the order the next time.
+    }
+
+    /// The kept file of a KLIPY item that you pick (D18 of YAZ-2919), or nil.
+    private func keptClip(of item: PickItem) -> Paster.Clip? {
+        guard case .online(let found) = item, let url = online?.keepFile(of: found) else { return nil }
+        return .file(url, type: found.fileType)
+    }
+
+    /// The card of a KLIPY item that you picked (D18 of YAZ-2919), with the new last use. It syncs.
+    private func useCard(_ item: OnlineItem) {
+        library.useCard(KlipyCard(item, lastUsed: Date()))
+        cardEntryLists = [:]
     }
 
     /// "Getting the GIF…" or "Getting the meme…".
@@ -636,14 +657,36 @@ final class PickSession {
         showInFinder(url)
     }
 
-    /// "Save to your GIFs" (or memes) of a KLIPY item (D7 of YAZ-2919): only its slug goes into the list.
-    /// With a search, the search text is the word of the item.
+    /// "Save to your GIFs" (or memes) of a KLIPY item (D18 of YAZ-2919): its file becomes your own item in `gifs/`
+    /// or `memes/`, with KLIPY's title. The file is the kept file, else the paste file (a download of up to 3 s).
+    /// With a search, the search text is the word of the item. The card of the item stays.
     func saveToYours(_ item: PickItem) {
-        guard case .online(let online) = item else { return }
+        guard case .online(let found) = item, let online else { return }
         // The search text is its word, so the next search with that word shows it in "Yours".
         let word = Search.normalize(query)
-        library.saveKlipy(online.id, kind: online.kind, words: word.isEmpty ? [] : [word])
-        itemsChanged()
+        online.getPasteFile(for: found) { [weak self] url in
+            guard let self else { return }
+            guard let url else { return self.show(notice: PickSession.cantGetText(found.kind)) }
+            Task { await self.copyToYours(url, found, words: word.isEmpty ? [] : [word]) }
+        }
+    }
+
+    /// The steps of the add window (D5, D12 of YAZ-2919): `MediaImport.prepare` and the write of the file off the
+    /// main thread, then `LibraryStore.add` on the main thread. The file of KLIPY stays where it is.
+    private func copyToYours(_ url: URL, _ found: OnlineItem, words: [String]) async {
+        do {
+            let file = try await MediaImport.prepare(url)
+            if let target = library.place(of: file, as: found.kind) {
+                try await Task.detached(priority: .userInitiated) { try LibraryStore.writeMediaFile(file.bytes, to: target) }.value
+            }
+            try library.add(file, as: found.kind, words: words, title: found.title, klipyID: found.id)
+            forgetEntries()
+            guard isOpen, question == nil else { return }
+            rebuild(keeping: selectedItem)
+            panel?.reload()
+        } catch {
+            show(notice: error.localizedDescription)
+        }
     }
 
     /// "Remove from your GIFs" (or memes) of a saved KLIPY item (D7, D13 of YAZ-2919). It has no file. Its counts stay.
@@ -666,21 +709,30 @@ final class PickSession {
         onAddFiles(sources)
     }
 
-    /// True when a KLIPY item is in your GIFs or memes (D7).
-    private func isSaved(_ item: OnlineItem) -> Bool {
-        library.item(Item.klipyItemID(item.id)).map { !$0.isRemoved } ?? false
+    /// True when a KLIPY item is saved by its slug in your GIFs or memes (D7).
+    private func isSaved(_ item: OnlineItem) -> Bool { isSaved(slug: item.id) }
+
+    private func isSaved(slug: String) -> Bool {
+        library.item(Item.klipyItemID(slug)).map { !$0.isRemoved } ?? false
+    }
+
+    /// The lists of search entries are made again at the next build: after an open, a change of the list,
+    /// new KLIPY items, or a switch.
+    private func forgetEntries() {
+        tileEntries = [:]
+        cardEntryLists = [:]
     }
 
     /// The list changed: the grid shows it at once, with the blue box on the same item when it is still there.
     private func itemsChanged() {
-        tileEntries = [:]
+        forgetEntries()
         rebuild(keeping: selectedItem)
         panel?.reload()
     }
 
     /// New KLIPY results or items: the grid shows them, with the blue box on the same item and the same scroll.
     private func onlineChanged() {
-        tileEntries = [:]
+        forgetEntries()
         guard isOpen, tab != .emoji, question == nil else { return }
         rebuild(keeping: selectedItem)
         panel?.update()
@@ -737,10 +789,10 @@ final class PickSession {
             store.addWord(word, to: emoji.text)
         case .own(let own):
             library.addWords([word], to: own.id)
-            tileEntries = [:]
+            forgetEntries()
         case .online(let online):
             library.addWords([word], to: Item.klipyItemID(online.id))
-            tileEntries = [:]
+            forgetEntries()
         }
     }
 
@@ -755,7 +807,7 @@ final class PickSession {
         case .title(let item):
             guard case .own(let own) = item else { break }
             library.setTitle(text, of: own.id)
-            tileEntries = [:]
+            forgetEntries()
             query = Item.cleanTitle(text)
         }
         // The search box shows the word or the title, so the item shows as a result at once.
@@ -911,8 +963,8 @@ final class PickSession {
         // D4 of YAZ-2919: your files do not show (they are all missing), and search and KLIPY still work.
         if library.mediaFolderIsMissing { grid.lines.append(.title(MediaFolder.missingText)) }
         func addMostUsedAndAll() {
-            let most = Search.mostUsed(of: entries + onlineEntries(kind, keys: Array(store.you.uses.keys)), you: store.you,
-                                       limit: PickSession.tileMostUsedLimit)
+            let used = entries + cardEntries(kind) + onlineEntries(kind, keys: Array(store.you.uses.keys))
+            let most = Search.mostUsed(of: used, you: store.you, limit: PickSession.tileMostUsedLimit)
             if !most.isEmpty {
                 let start = grid.items.count
                 grid.addSection(PickSession.mostUsedTitle, most.map(\.item))
@@ -927,9 +979,11 @@ final class PickSession {
             addMostUsedAndAll()
             return 0
         }
-        // "Yours": your files, your saved KLIPY items, and the KLIPY items that you picked for this text before (D7).
+        // "Yours": your files, your saved KLIPY items, the cards of the KLIPY items that you used (D18), and the KLIPY
+        // items with no card that you picked for this text before (D7). A card matches by its title and its learned words.
         let learned = store.you.learned[text].map { Array($0.keys) } ?? []
-        let yours = Search.ranked(for: query, in: entries + onlineEntries(kind, keys: learned), you: store.you)
+        let candidates = entries + cardEntries(kind) + onlineEntries(kind, keys: learned)
+        let yours = Search.ranked(for: query, in: candidates, you: store.you)
         let fromOnline = klipy(kind)?.section(for: text, kind: kind)
         // While KLIPY searches, the grid does not say "No match" yet.
         if yours.isEmpty && (fromOnline?.items.isEmpty ?? true) && fromOnline?.isLoading != true {
@@ -953,7 +1007,7 @@ final class PickSession {
     }
 
     /// The search entries of your files and your saved KLIPY items of one kind, newest first.
-    /// A saved KLIPY item shows only when KLIPY gave it to this session (D7).
+    /// A saved KLIPY item shows from its card (D18), or when KLIPY gave it to this session (D7).
     /// Your item whose file is missing does not show (D13 update on YAZ-2926): it stays in the list, and it shows
     /// again at the next open when the file is back. `LibraryStore.missing` comes from one listing of `gifs/` and
     /// `memes/` at each open, not from a check of each tile.
@@ -967,7 +1021,8 @@ final class PickSession {
                 guard !library.missing.contains(item.id) else { continue }
                 pick = .own(item)
                 title = item.title
-            } else if let slug = item.klipyID, let found = klipy(kind)?.item(slug, kind: kind) {
+            } else if let slug = item.klipyID,
+                      let found = klipyItem(slug, kind: kind, lastUsed: store.you.uses[KlipyCard.key(slug)]?.last ?? item.added) {
                 // A saved KLIPY item keeps KLIPY's title (D15 of YAZ-2919).
                 pick = .online(found)
                 title = found.title
@@ -980,17 +1035,53 @@ final class PickSession {
         return entries
     }
 
-    /// The KLIPY items of one kind for these `you` keys that are not saved: picked or learned items (D7).
-    /// They come after your own items in the order.
-    private func onlineEntries(_ kind: ItemKind, keys: [String]) -> [TileEntry] {
+    /// The cards of one kind (D18 of YAZ-2919), the last use first: the KLIPY items that you used, with no lookup.
+    /// Not here: a saved KLIPY item (it is in `tiles`), the card of your own item that "Save to your GIFs" copied
+    /// (your item takes its place), and a card that KLIPY deleted and whose file this Mac does not have.
+    /// They come after your own items in the order. A tab with its KLIPY switch off has none (D14 update).
+    private func cardEntries(_ kind: ItemKind) -> [TileEntry] {
+        if let entries = cardEntryLists[kind] { return entries }
         guard let online = klipy(kind) else { return [] }
+        let copied = Set(library.items(kind).compactMap { item in
+            item.file != nil && !library.missing.contains(item.id) ? item.klipyID : nil
+        })
+        let cards = library.cards.values.filter { $0.kind == kind }.sorted { a, b in
+            a.lastUsed != b.lastUsed ? a.lastUsed > b.lastUsed : a.slug < b.slug
+        }
         let start = tiles(kind).count
         var entries: [TileEntry] = []
+        for card in cards where !copied.contains(card.slug) && !isSaved(slug: card.slug) {
+            guard let item = online.item(for: card) else { continue }
+            entries.append(TileEntry(item: .online(item), words: [], title: item.title, order: start + entries.count))
+        }
+        cardEntryLists[kind] = entries
+        return entries
+    }
+
+    /// The KLIPY items of one kind for these `you` keys that have no card and are not saved: picked or learned items
+    /// of an earlier build (D7). They come after the cards in the order.
+    private func onlineEntries(_ kind: ItemKind, keys: [String]) -> [TileEntry] {
+        guard klipy(kind) != nil else { return [] }
+        let start = tiles(kind).count + cardEntries(kind).count
+        var entries: [TileEntry] = []
         for key in keys.filter({ $0.hasPrefix("klipy:") }).sorted() {
-            guard let item = online.item(String(key.dropFirst("klipy:".count)), kind: kind), !isSaved(item) else { continue }
+            let slug = String(key.dropFirst("klipy:".count))
+            guard library.card(slug) == nil, !isSaved(slug: slug),
+                  let item = klipyItem(slug, kind: kind, lastUsed: store.you.uses[key]?.last) else { continue }
             entries.append(TileEntry(item: .online(item), words: [], title: item.title, order: start + entries.count))
         }
         return entries
+    }
+
+    /// The KLIPY item of a slug in the tab of `kind`: from its card with no request (D18), else from a lookup by slug
+    /// (D7). The first lookup that gives the item makes its card, with this last use (the items of an earlier build).
+    private func klipyItem(_ slug: String, kind: ItemKind, lastUsed: Date?) -> OnlineItem? {
+        guard let online = klipy(kind) else { return nil }
+        if let card = library.card(slug) { return card.kind == kind ? online.item(for: card) : nil }
+        guard let found = online.item(slug, kind: kind) else { return nil }
+        library.addCard(KlipyCard(found, lastUsed: lastUsed ?? Date()))
+        cardEntryLists = [:]
+        return found
     }
 }
 

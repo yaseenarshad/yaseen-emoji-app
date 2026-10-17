@@ -4,8 +4,9 @@ import ImageIO
 /// KLIPY in the GIFs and Memes tabs (D1, D2, D7, D11 of YAZ-2919): the real `OnlineResults` of the app.
 ///
 /// It runs the search after the pause (`SearchDebouncer`), the next pages, the lookup of saved and learned items
-/// by slug, the 300 ms prefetch and the 3 s wait of a paste file, and the tile pictures. All of it stays in memory
-/// for the session. Only the paste file goes on disk, as a temp file (`PasteFiles`, D6 and D7).
+/// by slug, the 300 ms prefetch and the 3 s wait of a paste file, and the tile pictures. The results stay in memory
+/// for the session. The paste file goes on disk as a temp file (`PasteFiles`, D6), and a pick moves it into the
+/// kept files of this Mac (`KlipyFiles`, D18). A card (D18) gives a tile with no request.
 /// The network, the download, the sleep of the pause and the clock are parameters, so a test never goes online and never waits.
 @MainActor
 final class KlipyResults: OnlineResults {
@@ -43,6 +44,8 @@ final class KlipyResults: OnlineResults {
     private let fetchPicture: FetchPicture
     private let later: Later
     private let debouncer: SearchDebouncer
+    /// The files of the KLIPY items that you used (D18 of YAZ-2919). Nil: no file is kept.
+    private let keptFiles: KlipyFiles?
 
     // MARK: The state of the searches
 
@@ -98,29 +101,34 @@ final class KlipyResults: OnlineResults {
     /// The still pictures that the grid wants, the newest last.
     private var stillsWaiting: [URL] = []
     private var failedPictures: Set<URL> = []
+    /// The items of the KLIPY stills that load or wait. A still that fails asks KLIPY if it deleted the item (D18).
+    private var stillItems: [URL: OnlineItem] = [:]
 
     init(library: OnlineLibrary, keys: KeyStore, later: Later, download: @escaping Download,
-         fetchPicture: @escaping FetchPicture,
+         fetchPicture: @escaping FetchPicture, keptFiles: KlipyFiles? = nil,
          sleep: @escaping SearchDebouncer.Sleep = { try await Task.sleep(for: $0) }) {
         self.library = library
         self.keys = keys
         self.later = later
         self.download = download
-        self.fetchPicture = fetchPicture
+        // A kept file is on this Mac (D18): no request.
+        let fetch: FetchPicture = { url in url.isFileURL ? try Data(contentsOf: url) : try await fetchPicture(url) }
+        self.fetchPicture = fetch
+        self.keptFiles = keptFiles
         debouncer = SearchDebouncer(sleep: sleep)
         stills.countLimit = KlipyResults.stillsKept
-        movings = MovingPictures(kept: KlipyResults.movingKept, atOnce: KlipyResults.movingAtOnce, load: fetchPicture)
+        movings = MovingPictures(kept: KlipyResults.movingKept, atOnce: KlipyResults.movingAtOnce, load: fetch)
         isOn = keys.read() != nil
         movings.onLoad = { [weak self] in self?.onPicture() }
     }
 
     /// The app: KLIPY, the paste files and the pictures on one session with the 5 s time-out.
-    convenience init(keys: KeyStore, session: URLSession, pasteFiles: PasteFiles, later: Later,
+    convenience init(keys: KeyStore, session: URLSession, pasteFiles: PasteFiles, keptFiles: KlipyFiles, later: Later,
                      sleep: @escaping SearchDebouncer.Sleep = { try await Task.sleep(for: $0) }) {
         self.init(library: KlipyLibrary(keys: keys, session: session), keys: keys, later: later,
                   download: { try await pasteFiles.download($0) },
                   fetchPicture: { try await KlipyLibrary.fetch($0, session: session) },
-                  sleep: sleep)
+                  keptFiles: keptFiles, sleep: sleep)
     }
 
     /// Settings saved or removed the key. The key is only on this Mac (D2), so the app reads it only at the start
@@ -134,6 +142,7 @@ final class KlipyResults: OnlineResults {
     }
 
     func refresh() {
+        keptFiles?.reload()
         failedLookups = [:]
         failedPictures = []
         movings.retryFailed()
@@ -299,8 +308,10 @@ final class KlipyResults: OnlineResults {
             let found = items.filter { $0.kind == kind }
             keep(found)
             // D7: an item that KLIPY deleted drops from "Yours", with no grey line. Its counts stay.
-            deleted[kind, default: []].formUnion(Set(slugs).subtracting(found.map(\.id)))
-            if !found.isEmpty { onChange() }
+            // D18: its card stays, and its tile goes when this Mac has no file of it.
+            let gone = Set(slugs).subtracting(found.map(\.id)).subtracting(deleted[kind] ?? [])
+            deleted[kind, default: []].formUnion(gone)
+            if !found.isEmpty || !gone.isEmpty { onChange() }
         case .failure:
             failedLookups[kind, default: []].formUnion(slugs)
         }
@@ -318,11 +329,41 @@ final class KlipyResults: OnlineResults {
         }
     }
 
+    // MARK: The cards and the kept files (D18)
+
+    func item(for card: KlipyCard) -> OnlineItem? {
+        if let item = known[card.kind]?[card.slug] { return item }
+        if deleted[card.kind]?.contains(card.slug) == true, keptFile(of: card.slug) == nil { return nil }
+        return OnlineItem(card: card)
+    }
+
+    /// The kept file of this slug when it is on the disk, or nil.
+    private func keptFile(of slug: String) -> URL? {
+        guard let url = keptFiles?.file(for: slug), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    func keepFile(of item: OnlineItem) -> URL? {
+        guard let keptFiles else { return nil }
+        if let kept = keptFile(of: item.id) {
+            keptFiles.markUse(of: kept)
+            return kept
+        }
+        // The paste file that the pick downloaded moves: no second download.
+        let key = KlipyResults.fileKey(item)
+        guard let temp = files[key], FileManager.default.fileExists(atPath: temp.path),
+              let kept = try? keptFiles.keep(temp, slug: item.id, ext: item.fileExtension) else { return nil }
+        files[key] = nil
+        return kept
+    }
+
     // MARK: The paste file (D6): the prefetch and the wait
 
     private static func fileKey(_ item: OnlineItem) -> String { "\(item.kind.rawValue):\(item.id)" }
 
     func pasteFile(for item: OnlineItem) -> URL? {
+        // D18: a kept file pastes at once, with no prefetch and no wait.
+        if let kept = keptFile(of: item.id) { return kept }
         let key = KlipyResults.fileKey(item)
         guard let url = files[key] else { return nil }
         // The 5-minute clean-up can delete it.
@@ -387,30 +428,44 @@ final class KlipyResults: OnlineResults {
 
     // MARK: The pictures of the tiles
 
+    /// The still picture comes from the kept file when this Mac has it (D18), else from KLIPY's still.
+    /// A still of KLIPY that is in memory already stays, so a pick does not make the tile grey.
     func still(for item: OnlineItem) -> NSImage? {
         if let image = stills.object(forKey: item.still.absoluteString as NSString) { return image }
-        wantStill(item.still)
+        let source = keptFiles?.file(for: item.id) ?? item.still
+        if let image = stills.object(forKey: source.absoluteString as NSString) { return image }
+        wantStill(source, of: item)
         return nil
     }
 
     func moving(for item: OnlineItem) -> NSImage? {
-        item.preview.flatMap(movings.image(for:))
+        movingSource(item).flatMap(movings.image(for:))
+    }
+
+    /// The moving picture of a GIF tile: the kept file (D18), else KLIPY's `sm.gif`. A meme has none.
+    private func movingSource(_ item: OnlineItem) -> URL? {
+        guard let preview = item.preview else { return nil }
+        return keptFiles?.file(for: item.id) ?? preview
     }
 
     /// The URLs of the previews whose load runs now. For a test.
     var movingLoads: Set<URL> { movings.loading }
 
     func wantMoving(_ items: [OnlineItem]) {
-        movings.want(items.compactMap(\.preview))
+        movings.want(items.compactMap(movingSource))
     }
 
     /// The grid asks for the tiles that it draws. The newest wish loads first, and only the last 24 wishes wait,
     /// so a fast scroll does not load each tile that it passed.
-    private func wantStill(_ url: URL) {
+    private func wantStill(_ url: URL, of item: OnlineItem) {
         guard !stillsLoading.contains(url), !failedPictures.contains(url) else { return }
         stillsWaiting.removeAll { $0 == url }
         stillsWaiting.append(url)
-        if stillsWaiting.count > KlipyLibrary.pageSize { stillsWaiting.removeFirst(stillsWaiting.count - KlipyLibrary.pageSize) }
+        if !url.isFileURL { stillItems[url] = item }
+        if stillsWaiting.count > KlipyLibrary.pageSize {
+            for dropped in stillsWaiting.prefix(stillsWaiting.count - KlipyLibrary.pageSize) { stillItems[dropped] = nil }
+            stillsWaiting.removeFirst(stillsWaiting.count - KlipyLibrary.pageSize)
+        }
         startStills()
     }
 
@@ -427,12 +482,16 @@ final class KlipyResults: OnlineResults {
 
     private func stillCame(_ url: URL, _ image: CGImage?) {
         stillsLoading.remove(url)
+        let item = stillItems.removeValue(forKey: url)
         if let image {
             let side = CGFloat(KlipyResults.stillSide) / 2
             stills.setObject(NSImage(cgImage: image, size: NSSize(width: side, height: side)), forKey: url.absoluteString as NSString)
             onPicture()
         } else {
             failedPictures.insert(url)
+            // D18: the URL of a card can fail because KLIPY deleted the item. One items call asks KLIPY.
+            // A search result is known already, so it sends no call.
+            if let item, isOn, known[item.kind]?[item.id] == nil { _ = self.item(item.id, kind: item.kind) }
         }
         startStills()
     }
