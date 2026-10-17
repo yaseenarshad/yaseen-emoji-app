@@ -207,6 +207,15 @@ final class PickRig {
         try #require(session.items.firstIndex { $0.key == key }, "\(key) is not in the grid")
     }
 
+    /// A `SettingsModel` on the same prefs, history and list. A change of a KLIPY switch goes to the session,
+    /// the same as in the app.
+    func settingsModel() -> SettingsModel {
+        let model = SettingsModel(prefs: prefs, hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), access: access,
+                                  store: store, folders: folders, library: library, keyStore: klipyKey)
+        model.onKlipySwitchChanged = { [session] in session.klipySwitchChanged() }
+        return model
+    }
+
     /// The parts of an `AppController` with the same fakes, and a catalog that loads with no file.
     func parts(catalog: [Emoji]) -> AppParts {
         AppParts(defaults: defaults, defaultFolder: folder.defaultFolder, computerName: { "Test Mac" },

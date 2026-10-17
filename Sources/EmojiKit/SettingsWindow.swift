@@ -32,6 +32,8 @@ struct SettingsView: View {
             Section("GIFs and memes") {
                 mediaFolderRow
                 klipyKeyRow
+                klipySwitch("Search KLIPY in GIFs", kind: .gif)
+                klipySwitch("Search KLIPY in Memes", kind: .meme)
             }
         }
         .formStyle(.grouped)
@@ -240,6 +242,16 @@ struct SettingsView: View {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
         }
+    }
+
+    /// D14 update of YAZ-2919: a tab with its switch off shows only your own GIFs or memes.
+    /// The switches show with no key too. Then the tab with its switch on tells you to add a key.
+    private func klipySwitch(_ title: String, kind: ItemKind) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { model.searchesKlipy(kind) },
+            set: { model.setSearchesKlipy($0, for: kind) }
+        ))
+        .toggleStyle(.switch)
     }
 
     /// The first click asks in the same row. No alert: an alert takes the keyboard from the panel.

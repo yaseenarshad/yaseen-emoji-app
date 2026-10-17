@@ -50,7 +50,12 @@ import Testing
         let online = FakeOnline()
         let withKey = try PickRig(online: online)
         withKey.session.open()
+        withKey.session.select(tab: .gifs)
+        #expect(withKey.session.placeholder == "Search KLIPY")
+        // "Search KLIPY in Memes" is off at the start (D14 update of YAZ-2919).
         withKey.session.select(tab: .memes)
+        #expect(withKey.session.placeholder == "Search your memes")
+        withKey.prefs.setSearchesKlipy(true, for: .meme)
         #expect(withKey.session.placeholder == "Search KLIPY")
         withKey.session.select(tab: .emoji)
         #expect(withKey.session.placeholder == "Search emoji")

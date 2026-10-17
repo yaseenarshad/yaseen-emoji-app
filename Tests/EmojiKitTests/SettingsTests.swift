@@ -26,12 +26,18 @@ import Testing
         #expect(prefs.pickMode == .paste)
         #expect(prefs.defaultTone == "")
         #expect(!prefs.askedForAccessibility)
+        // D14 update of YAZ-2919: GIFs on, Memes off.
+        #expect(prefs.searchesKlipy(.gif) && !prefs.searchesKlipy(.meme))
+        #expect(prefs.klipyChangedAt(.gif) == nil && prefs.klipyChangedAt(.meme) == nil)
 
         prefs.hotKey = controlOptionE
         prefs.pickMode = .copyOnly
         prefs.defaultTone = "\u{1F3FE}"
         prefs.askedForAccessibility = true
+        prefs.setSearchesKlipy(false, for: .gif)
+        prefs.setSearchesKlipy(true, for: .meme)
         let again = Prefs(defaults: defaults)
+        #expect(!again.searchesKlipy(.gif) && again.searchesKlipy(.meme))
         #expect(again.hotKey == controlOptionE)
         #expect(again.pickMode == .copyOnly)
         #expect(again.defaultTone == "\u{1F3FE}")
@@ -48,6 +54,84 @@ import Testing
         defaults.set(300, forKey: "yaseenEmoji.hotKeyCode")
         defaults.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: "yaseenEmoji.hotKeyModifiers")
         #expect(again.hotKey == commandE)
+    }
+
+    /// D14 update of YAZ-2919 and D16: the KLIPY switches sync through two history files, and the newest change wins.
+    /// Mac B's newer Memes change works on Mac A at the next open. Mac A's newer GIFs change beats Mac B's older one.
+    /// Each Mac writes only its own file.
+    @Test func theKLIPYSwitchesSyncAndTheNewestChangeWins() async throws {
+        let rig = try PickRig()
+        try rig.klipyKey.write("test-key")
+        let app = AppController(hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), parts: rig.parts(catalog: smallCatalog(5)))
+        app.start()
+        await app.ready?.value
+        let session = try #require(app.session)
+        #expect(app.settings.klipyGIFs && !app.settings.klipyMemes)
+        session.open()
+        session.select(tab: .memes)
+        #expect(session.placeholder == "Search your memes")
+        session.close()
+
+        // Mac A: GIFs off, now.
+        app.settings.setSearchesKlipy(false, for: .gif)
+        #expect(!app.settings.klipyGIFs && !rig.prefs.searchesKlipy(.gif))
+        #expect(app.store.own.settings.klipyGIFs?.value == false && rig.prefs.klipyChangedAt(.gif) != nil)
+
+        // Mac B: GIFs on 2 hours ago, and Memes on 1 hour ago. A has no Memes change, so B's is the newest.
+        // Whole seconds: the file keeps milliseconds.
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        var timeB = now.addingTimeInterval(-7_200)
+        let macB = YouStore(url: rig.folder.defaultFolder.appendingPathComponent("you-B.json"), now: { timeB })
+        macB.load()
+        macB.setSearchesKlipy(true, for: .gif)
+        timeB = now.addingTimeInterval(-3_600)
+        macB.setSearchesKlipy(true, for: .meme)
+
+        // The next open reads B's file. B's Memes change wins. A's GIFs change is newer than B's: it stays.
+        session.open()
+        #expect(app.settings.klipyMemes && rig.prefs.searchesKlipy(.meme) && rig.prefs.klipyChangedAt(.meme) == timeB)
+        #expect(!app.settings.klipyGIFs && !rig.prefs.searchesKlipy(.gif))
+        session.select(tab: .memes)
+        #expect(session.placeholder == "Search KLIPY")
+        session.select(tab: .gifs)
+        #expect(session.placeholder == "Search your GIFs")
+        session.close()
+        #expect(app.store.own.settings.klipyMemes == nil)
+        #expect(macB.own.settings.klipyGIFs?.value == true)
+
+        // B turns Memes off a minute later. A's next open applies it. With no new change, nothing applies again.
+        timeB = timeB.addingTimeInterval(60)
+        macB.setSearchesKlipy(false, for: .meme)
+        session.open()
+        #expect(!app.settings.klipyMemes && !rig.prefs.searchesKlipy(.meme))
+        session.select(tab: .memes)
+        #expect(session.placeholder == "Search your memes")
+        session.close()
+        #expect(!app.store.reload())
+
+        // A change on A after it wins over B, and goes into A's file only.
+        app.settings.setSearchesKlipy(true, for: .meme)
+        #expect(app.store.you.settings.klipyMemes?.value == true)
+        let fileB = try YouStore.decoder.decode(You.self, from: Data(contentsOf: macB.url))
+        #expect(fileB.settings.klipyMemes?.value == false)
+    }
+
+    /// D14 update of YAZ-2919: a history file of an older build has no KLIPY switches. It loads, and the switches
+    /// keep the start values: GIFs on, Memes off.
+    @Test func anOldHistoryFileWithNoKLIPYSwitchesGivesTheStartValues() throws {
+        let rig = try PickRig()
+        let old = #"{"settings": {"pickMode": {"value": "copyOnly", "at": "2026-10-16T10:00:00.000Z"}}, "uses": {}}"#
+        try FileManager.default.createDirectory(at: rig.folder.youFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(old.utf8).write(to: rig.folder.youFile)
+        rig.store.load()
+        #expect(rig.store.movedBadFile == nil)
+        #expect(rig.store.you.settings.pickMode?.value == "copyOnly")
+        #expect(rig.store.you.settings.klipyGIFs == nil && rig.store.you.settings.klipyMemes == nil)
+        let model = makeModel(rig, hotKeys: FakeHotKeyRegistrar())
+        model.applySynced()
+        #expect(model.pickMode == .copyOnly)
+        #expect(model.klipyGIFs && !model.klipyMemes)
+        #expect(rig.prefs.klipyChangedAt(.gif) == nil && rig.prefs.klipyChangedAt(.meme) == nil)
     }
 
     /// A new key works at once. A key that macOS refuses keeps the old key, with the red line (D8).

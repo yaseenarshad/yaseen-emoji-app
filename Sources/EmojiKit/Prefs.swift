@@ -32,7 +32,7 @@ enum SkinTone {
 
 /// The settings of the app, in `UserDefaults` (D2, D8, D9, D16).
 ///
-/// The hotkey, "When you pick" and the default skin tone also sync through the history files (D16).
+/// The hotkey, "When you pick", the default skin tone and the two KLIPY switches also sync through the history files (D16).
 /// `UserDefaults` is the cache of this Mac: it keeps the value and the time of the change that this Mac applied.
 /// The `UserDefaults` is a parameter, so a test gives one that keeps its values in memory.
 /// A value that is missing or broken gives the start value. Prefs never fail.
@@ -47,9 +47,16 @@ final class Prefs {
         static let hotKeyChangedAt = "yaseenEmoji.hotKeyChangedAt"
         static let pickModeChangedAt = "yaseenEmoji.pickModeChangedAt"
         static let defaultToneChangedAt = "yaseenEmoji.defaultToneChangedAt"
+        static let klipyGIFs = "yaseenEmoji.klipyGIFs"
+        static let klipyMemes = "yaseenEmoji.klipyMemes"
+        static let klipyGIFsChangedAt = "yaseenEmoji.klipyGIFsChangedAt"
+        static let klipyMemesChangedAt = "yaseenEmoji.klipyMemesChangedAt"
         static let preferencesFolder = "yaseenEmoji.preferencesFolder"
         static let mediaFolder = "yaseenEmoji.mediaFolder"
         static let macName = "yaseenEmoji.macName"
+
+        static func klipy(_ kind: ItemKind) -> String { kind == .gif ? klipyGIFs : klipyMemes }
+        static func klipyChangedAt(_ kind: ItemKind) -> String { kind == .gif ? klipyGIFsChangedAt : klipyMemesChangedAt }
     }
 
     private let defaults: UserDefaults
@@ -91,6 +98,16 @@ final class Prefs {
         set { defaults.set(SkinTone.all.contains(newValue) ? newValue : "", forKey: Key.defaultTone) }
     }
 
+    /// "Search KLIPY in GIFs" and "Search KLIPY in Memes" (D14 update of YAZ-2919).
+    /// The start values: GIFs on, Memes off (Yaseen, 16 Oct 2026: "memes off by default").
+    func searchesKlipy(_ kind: ItemKind) -> Bool {
+        defaults.object(forKey: Key.klipy(kind)) as? Bool ?? (kind == .gif)
+    }
+
+    func setSearchesKlipy(_ on: Bool, for kind: ItemKind) {
+        defaults.set(on, forKey: Key.klipy(kind))
+    }
+
     /// True after the first launch asked for Accessibility. The app asks one time only (D2).
     var askedForAccessibility: Bool {
         get { defaults.object(forKey: Key.askedForAccessibility) as? Bool ?? false }
@@ -114,6 +131,15 @@ final class Prefs {
     var defaultToneChangedAt: Date? {
         get { defaults.object(forKey: Key.defaultToneChangedAt) as? Date }
         set { defaults.set(newValue, forKey: Key.defaultToneChangedAt) }
+    }
+
+    /// The time of the KLIPY switch of `kind` that this Mac uses now, or nil.
+    func klipyChangedAt(_ kind: ItemKind) -> Date? {
+        defaults.object(forKey: Key.klipyChangedAt(kind)) as? Date
+    }
+
+    func setKlipyChangedAt(_ date: Date, for kind: ItemKind) {
+        defaults.set(date, forKey: Key.klipyChangedAt(kind))
     }
 
     /// The path of the preferences folder. "" is the default folder. It stays on each Mac.

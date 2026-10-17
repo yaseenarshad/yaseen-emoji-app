@@ -294,9 +294,25 @@ final class PickSession {
         if let item = addingWordFor { return "A word for \(PickSession.name(of: item))" }
         switch tab {
         case .emoji: return "Search emoji"
-        case .gifs: return online?.isOn == true ? "Search KLIPY" : "Search your GIFs"
-        case .memes: return online?.isOn == true ? "Search KLIPY" : "Search your memes"
+        case .gifs: return klipy(.gif)?.isOn == true ? "Search KLIPY" : "Search your GIFs"
+        case .memes: return klipy(.meme)?.isOn == true ? "Search KLIPY" : "Search your memes"
         }
+    }
+
+    /// KLIPY for the tab of `kind`, or nil when its switch in Settings is off (D14 update of YAZ-2919).
+    /// The GIFs and Memes tabs ask KLIPY only through this. Thus a tab with its switch off is the same as a tab
+    /// with no `OnlineResults`: no request, no "From KLIPY", and no saved or learned KLIPY items.
+    private func klipy(_ kind: ItemKind) -> OnlineResults? {
+        prefs.searchesKlipy(kind) ? online : nil
+    }
+
+    /// A KLIPY switch changed: the tabs use it at once. The saved and learned KLIPY items go, or come back.
+    func klipySwitchChanged() {
+        tileEntries = [:]
+        guard isOpen, tab != .emoji, addingWordFor == nil else { return }
+        stopWaiting()
+        rebuild(keeping: selectedItem)
+        panel?.reload()
     }
 
     // MARK: The keys
@@ -375,7 +391,7 @@ final class PickSession {
         guard isOpen, let kind = tab.kind, addingWordFor == nil else { return }
         let text = Search.normalize(query)
         guard !text.isEmpty else { return }
-        online?.loadMore(for: text, kind: kind)
+        klipy(kind)?.loadMore(for: text, kind: kind)
     }
 
     var selectedItem: PickItem? {
@@ -827,7 +843,7 @@ final class PickSession {
         // "Yours": your files, your saved KLIPY items, and the KLIPY items that you picked for this text before (D7).
         let learned = store.you.learned[text].map { Array($0.keys) } ?? []
         let yours = Search.ranked(for: query, in: entries + onlineEntries(kind, keys: learned), you: store.you)
-        let fromOnline = online?.section(for: text, kind: kind)
+        let fromOnline = klipy(kind)?.section(for: text, kind: kind)
         // While KLIPY searches, the grid does not say "No match" yet.
         if yours.isEmpty && (fromOnline?.items.isEmpty ?? true) && fromOnline?.isLoading != true {
             grid.lines.append(.title(PickSession.noTileMatchTitle(query.trimmingCharacters(in: .whitespaces))))
@@ -857,7 +873,7 @@ final class PickSession {
             if item.file != nil {
                 guard !library.missing.contains(item.id) else { continue }
                 pick = .own(item)
-            } else if let slug = item.klipyID, let found = online?.item(slug, kind: kind) {
+            } else if let slug = item.klipyID, let found = klipy(kind)?.item(slug, kind: kind) {
                 pick = .online(found)
             } else {
                 continue
@@ -871,7 +887,7 @@ final class PickSession {
     /// The KLIPY items of one kind for these `you` keys that are not saved: picked or learned items (D7).
     /// They come after your own items in the order.
     private func onlineEntries(_ kind: ItemKind, keys: [String]) -> [TileEntry] {
-        guard let online else { return [] }
+        guard let online = klipy(kind) else { return [] }
         let start = tiles(kind).count
         var entries: [TileEntry] = []
         for key in keys.filter({ $0.hasPrefix("klipy:") }).sorted() {

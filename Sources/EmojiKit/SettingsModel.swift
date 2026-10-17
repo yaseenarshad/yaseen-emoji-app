@@ -73,6 +73,9 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var hasKlipyKey = false
     /// The red line below the key box.
     @Published private(set) var klipyKeyProblem: String?
+    /// "Search KLIPY in GIFs" and "Search KLIPY in Memes" (D14 update of YAZ-2919). They sync (D16).
+    @Published private(set) var klipyGIFs: Bool
+    @Published private(set) var klipyMemes: Bool
 
     /// The menu shows the hotkey, so the app must know each change.
     var onHotKeyChanged: (HotKeyCombo) -> Void = { _ in }
@@ -86,6 +89,8 @@ final class SettingsModel: ObservableObject {
     var pickMediaFolder: (@escaping (URL?) -> Void) -> Void = { $0(nil) }
     /// The KLIPY key changed: the panel searches KLIPY with the new key, or stops.
     var onKlipyKeyChanged: () -> Void = {}
+    /// A KLIPY switch changed, here or on a different Mac: the panel builds its GIFs and Memes tabs again.
+    var onKlipySwitchChanged: () -> Void = {}
 
     private let prefs: Prefs
     private let hotKeys: HotKeyRegistering
@@ -114,6 +119,8 @@ final class SettingsModel: ObservableObject {
         hotKey = prefs.hotKey
         pickMode = prefs.pickMode
         defaultTone = prefs.defaultTone
+        klipyGIFs = prefs.searchesKlipy(.gif)
+        klipyMemes = prefs.searchesKlipy(.meme)
         hasKlipyKey = !(keyStore.read() ?? "").isEmpty
         refresh()
     }
@@ -204,6 +211,15 @@ final class SettingsModel: ObservableObject {
             if defaultTone != tone.value {
                 defaultTone = tone.value
                 onTonesChanged()
+            }
+        }
+        for kind in ItemKind.allCases {
+            if let synced = synced[keyPath: You.Settings.klipy(kind)], isNewer(synced.at, than: prefs.klipyChangedAt(kind)) {
+                let changed = synced.value != prefs.searchesKlipy(kind)
+                prefs.setSearchesKlipy(synced.value, for: kind)
+                prefs.setKlipyChangedAt(synced.at, for: kind)
+                showKlipySwitch(kind)
+                if changed { onKlipySwitchChanged() }
             }
         }
         // The recorder has the hotkey off. The next reload applies the key.
@@ -377,6 +393,30 @@ final class SettingsModel: ObservableObject {
         isChangingKlipyKey = false
         hasKlipyKey = false
         onKlipyKeyChanged()
+    }
+
+    // MARK: The KLIPY switches (D14 update of YAZ-2919)
+
+    /// The switch of the tab of `kind`.
+    func searchesKlipy(_ kind: ItemKind) -> Bool {
+        kind == .gif ? klipyGIFs : klipyMemes
+    }
+
+    /// "Search KLIPY in GIFs" or "Search KLIPY in Memes". A tab with its switch off sends no request and shows
+    /// only your own files. The other Macs get the change through this Mac's history file (D16).
+    func setSearchesKlipy(_ on: Bool, for kind: ItemKind) {
+        guard on != searchesKlipy(kind) else { return }
+        prefs.setSearchesKlipy(on, for: kind)
+        prefs.setKlipyChangedAt(store.setSearchesKlipy(on, for: kind), for: kind)
+        showKlipySwitch(kind)
+        onKlipySwitchChanged()
+    }
+
+    private func showKlipySwitch(_ kind: ItemKind) {
+        switch kind {
+        case .gif: klipyGIFs = prefs.searchesKlipy(.gif)
+        case .meme: klipyMemes = prefs.searchesKlipy(.meme)
+        }
     }
 
     /// "Get a free key": the Partner Panel of KLIPY.

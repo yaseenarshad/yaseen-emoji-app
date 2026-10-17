@@ -93,6 +93,8 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         let page = klipyPage(klipy, ["dance-2", "cat-1", "cat-3"], hasNext: false)
         klipy.network.setReply { _ in .json(page) }
         let own = try klipy.rig.addOwn(words: ["cat"])
+        // The Memes tab searches KLIPY only with its switch on (D14 update of YAZ-2919).
+        klipy.rig.prefs.setSearchesKlipy(true, for: .meme)
         let session = klipy.session
         session.open()
         session.select(tab: .gifs)
@@ -196,8 +198,125 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         klipy.klipy.keyChanged()
         session.close()
         session.open()
-        session.select(tab: .memes)
+        session.select(tab: .gifs)
         #expect(session.placeholder == "Search KLIPY")
+        // The Memes tab: its switch is off at the start (D14 update of YAZ-2919).
+        session.select(tab: .memes)
+        #expect(session.placeholder == "Search your memes")
+    }
+
+    /// D14 update of YAZ-2919: "Search KLIPY in GIFs" is on and "Search KLIPY in Memes" is off at the start.
+    /// With a key, the Memes tab sends no request and shows only your own memes, and the GIFs tab searches KLIPY.
+    /// Memes on: the Memes tab searches KLIPY. GIFs off: no "From KLIPY" and no grey line in the GIFs tab.
+    @Test func eachTabHasItsKLIPYSwitch() async throws {
+        let klipy = try KlipyRig()
+        let gifs = klipyPage(klipy, ["cat-1"], hasNext: false)
+        let memes = KlipySample.page([KlipySample.meme(number: 7, slug: "cat-meme", title: "cat") { [network = klipy.network] name in
+            network.mediaURL("cat-meme/\(name)").absoluteString
+        }], hasNext: false)
+        klipy.network.setReply { request in
+            request.url?.path.contains("/static-memes/") == true ? .json(memes) : .json(gifs)
+        }
+        let model = klipy.rig.settingsModel()
+        #expect(model.klipyGIFs && !model.klipyMemes)
+        let meme = try klipy.rig.addOwn(.meme, words: ["cat"])
+        let session = klipy.session
+        session.open()
+        session.select(tab: .memes)
+        #expect(session.placeholder == "Search your memes")
+        session.setQuery("cat")
+        #expect(session.lines == [.title("Yours"), .cells(0..<1)])
+        #expect(session.items == [.own(meme)])
+        session.reachedEnd()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(klipy.pause.waiting == 0 && klipy.network.requests.isEmpty)
+
+        // The GIFs tab searches KLIPY.
+        await klipy.search("cat", tab: .gifs)
+        #expect(session.placeholder == "Search KLIPY")
+        #expect(klipy.onlineSlugs == ["cat-1"])
+        #expect(klipy.requests("search").map { $0.url?.path.hasSuffix("/gifs/search") == true } == [true])
+
+        // Memes on: the Memes tab searches KLIPY.
+        model.setSearchesKlipy(true, for: .meme)
+        #expect(model.klipyMemes && klipy.rig.prefs.searchesKlipy(.meme))
+        await klipy.search("cat", tab: .memes)
+        #expect(session.placeholder == "Search KLIPY")
+        #expect(klipy.onlineSlugs == ["cat-meme"])
+        #expect(klipy.requests("search").last?.url?.path.hasSuffix("/static-memes/search") == true)
+        #expect(klipy.requests("search").count == 2)
+
+        // GIFs off: the GIFs tab shows no "From KLIPY" and sends no request, also with a new text.
+        model.setSearchesKlipy(false, for: .gif)
+        session.select(tab: .gifs)
+        #expect(session.placeholder == "Search your GIFs")
+        #expect(!session.lines.contains(.title(PickSession.onlineTitle)) && klipy.onlineSlugs.isEmpty)
+        session.setQuery("dog")
+        #expect(session.lines.first == .title(PickSession.noTileMatchTitle("dog")))
+        #expect(!session.lines.contains { line in
+            if case .title(let text) = line { return text.contains("KLIPY") }
+            return false
+        })
+        for _ in 0..<50 { await Task.yield() }
+        #expect(klipy.pause.waiting == 0 && klipy.requests("search").count == 2)
+    }
+
+    /// D14 update of YAZ-2919: a saved KLIPY meme needs KLIPY to load. With "Search KLIPY in Memes" off, it is not
+    /// in "Yours" or "Your memes", and no items call goes. It stays in the list. The switch on brings it back.
+    /// With no key and the switch on, the grey line asks for a key.
+    @Test func aSavedKLIPYMemeShowsOnlyWithTheMemesSwitchOn() async throws {
+        let klipy = try KlipyRig()
+        let meme = KlipySample.meme(number: 7, slug: "fine-dog", title: "this is fine") { [network = klipy.network] name in
+            network.mediaURL("fine-dog/\(name)").absoluteString
+        }
+        klipy.network.setReply { request in
+            request.url?.path.hasSuffix("/static-memes/items") == true
+                ? .json(KlipySample.items([meme])) : .json(KlipySample.page([], hasNext: false))
+        }
+        let rig = klipy.rig
+        rig.library.saveKlipy("fine-dog", kind: .meme, words: ["fine"])
+        rig.store.recordPick("klipy:fine-dog", query: "fine")
+        let model = rig.settingsModel()
+        let session = klipy.session
+        session.open()
+        session.select(tab: .memes)
+        #expect(session.lines == [.title("Your memes"), .title(PickSession.emptyTitle(.meme))])
+        session.setQuery("fine")
+        #expect(session.lines.first == .title(PickSession.noTileMatchTitle("fine")))
+        #expect(klipy.onlineSlugs.isEmpty)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(klipy.network.requests.isEmpty)
+        // It stays in the list and in the history.
+        #expect(rig.library.item(Item.klipyItemID("fine-dog")).map { !$0.isRemoved } == true)
+        #expect(rig.store.you.uses["klipy:fine-dog"]?.count == 1)
+
+        // Memes on: one items call, and the meme is in "Yours" at once.
+        model.setSearchesKlipy(true, for: .meme)
+        await waitUntil { session.lines.first == .title("Yours") }
+        #expect(klipy.onlineSlugs.first == "fine-dog")
+        let calls = klipy.requests("items")
+        #expect(calls.count == 1 && calls.first?.url?.path.hasSuffix("/static-memes/items") == true)
+        // The next open with no search: "Your most used" and "Your memes" have it.
+        session.close()
+        session.open()
+        session.select(tab: .memes)
+        #expect(session.mostUsedItems == 0..<1)
+        #expect(klipy.onlineSlugs == ["fine-dog", "fine-dog"])
+
+        // Memes off: it goes at once.
+        model.setSearchesKlipy(false, for: .meme)
+        #expect(klipy.onlineSlugs.isEmpty)
+        #expect(session.lines == [.title("Your memes"), .title(PickSession.emptyTitle(.meme))])
+
+        // No key, and the switch on: the grey line asks for a key, and no request goes.
+        let sent = klipy.network.requests.count
+        try klipy.keys.write("")
+        klipy.klipy.keyChanged()
+        model.setSearchesKlipy(true, for: .meme)
+        session.setQuery("fine")
+        #expect(session.lines.contains(.title(OnlineError.noKey.line)))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(klipy.pause.waiting == 0 && klipy.network.requests.count == sent)
     }
 
     /// D11: 24 a page, the next page when the grid reaches its end (a scroll, or the blue box in the last row),

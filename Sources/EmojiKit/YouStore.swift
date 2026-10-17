@@ -54,7 +54,15 @@ public struct You: Codable, Equatable, Sendable {
         public var pickMode: Dated<String>?
         /// "" (yellow) or one tone mark of `SkinTone.all`.
         public var defaultTone: Dated<String>?
+        /// "Search KLIPY in GIFs" and "Search KLIPY in Memes" (D14 update of YAZ-2919). An older file has none.
+        public var klipyGIFs: Dated<Bool>?
+        public var klipyMemes: Dated<Bool>?
         public init() {}
+
+        /// The KLIPY switch of the tab of `kind`.
+        static func klipy(_ kind: ItemKind) -> WritableKeyPath<Settings, Dated<Bool>?> {
+            kind == .gif ? \.klipyGIFs : \.klipyMemes
+        }
     }
 
     /// The emojis for each search text: search text → emoji key → how many times, and the last time.
@@ -159,6 +167,8 @@ public struct You: Codable, Equatable, Sendable {
             merged.settings.hotKey = newest(merged.settings.hotKey, file.settings.hotKey)
             merged.settings.pickMode = newest(merged.settings.pickMode, file.settings.pickMode)
             merged.settings.defaultTone = newest(merged.settings.defaultTone, file.settings.defaultTone)
+            merged.settings.klipyGIFs = newest(merged.settings.klipyGIFs, file.settings.klipyGIFs)
+            merged.settings.klipyMemes = newest(merged.settings.klipyMemes, file.settings.klipyMemes)
         }
         return merged
     }
@@ -350,6 +360,16 @@ public final class YouStore {
     public func setDefaultTone(_ tone: String) -> Date {
         let time = now()
         own.settings.defaultTone = You.Dated(tone, at: time)
+        changed()
+        return time
+    }
+
+    /// A new "Search KLIPY in GIFs" or "Search KLIPY in Memes" in Settings (D14 update of YAZ-2919).
+    /// Returns the time of the change.
+    @discardableResult
+    public func setSearchesKlipy(_ on: Bool, for kind: ItemKind) -> Date {
+        let time = now()
+        own.settings[keyPath: You.Settings.klipy(kind)] = You.Dated(on, at: time)
         changed()
         return time
     }
