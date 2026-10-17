@@ -101,6 +101,8 @@ The parts of `EmojiKit`:
 - `SettingsModel` and `SettingsWindow.swift`: the rules of Settings with no window, and the SwiftUI form in a non-activating panel.
 - `HotKey.swift`: the global hotkey (Carbon `RegisterEventHotKey`, no permission). `HotKeyRegistering` is a protocol, so a test uses a fake.
 - `LoginItem.swift`: "Start at login" (`SMAppService`). `LoginItem` is a protocol, so a test uses a fake.
+- `OnlineLibrary.swift`: KLIPY (D1 of YAZ-2919). `OnlineItem`, the `OnlineLibrary` protocol, and `KlipyLibrary` (`URLSession`, a time-out of 5 s, 24 results a page, at most 96, KLIPY's order). The KLIPY ID of an item is its slug, because `gifs/items` takes slugs. `SearchDebouncer` starts a search 350 ms after the last change and cancels the old one. `PasteFiles` downloads the paste file to `<cache>/paste/<uuid>/<id>.<ext>` and deletes it after 5 minutes and at quit.
+- `KeyStore.swift`: the KLIPY key (D2 of YAZ-2919). `KeyStore` is a protocol, so a test uses a fake. `KeychainKeyStore` keeps a generic password, service `com.yaseenarshad.yaseenemoji`, account `klipy`. An empty text removes it.
 
 ## Test
 
@@ -110,6 +112,7 @@ The parts of `EmojiKit`:
 - A test never registers a real hotkey or a real login item. It uses a fake one.
 - A test never reads or changes the real clipboard. It uses a fake one.
 - A test never touches the real Trash. It uses `FakeTrash` in a temp folder. The videos and pictures of the import tests are made in the test.
+- A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`.
 - A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
 - Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search, and the change of a 5 s MP4 to a GIF. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
 - The window parts (the panel, the grid, the menu on the screen) have no test. Check them on the real screen.
