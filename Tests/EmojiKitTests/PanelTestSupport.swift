@@ -253,7 +253,7 @@ final class FakeOnline: OnlineResults {
     func moving(for item: OnlineItem) -> NSImage? { nil }
 
     /// A KLIPY GIF with this slug. The URLs are never loaded.
-    static func gif(_ slug: String, kind: OnlineKind = .gif) -> OnlineItem {
+    static func gif(_ slug: String, kind: ItemKind = .gif) -> OnlineItem {
         let base = URL(string: "https://static.klipy.com/\(slug)")!
         return OnlineItem(id: slug, number: nil, kind: kind, title: slug, still: base.appendingPathComponent("sm.jpg"),
                           preview: base.appendingPathComponent("sm.gif"), file: base.appendingPathComponent("md.gif"),

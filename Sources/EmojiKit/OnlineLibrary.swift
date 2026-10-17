@@ -1,12 +1,6 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// GIF or meme, for an online item. The raw values are the `kind` of a library item (D3 of YAZ-2919).
-enum OnlineKind: String, Codable, Sendable, CaseIterable {
-    case gif
-    case meme
-}
-
 /// One GIF or meme of KLIPY (D1 of YAZ-2919). It holds only the URLs, never the file (D7).
 /// The URLs stay exactly as KLIPY gives them (KLIPY's rule 1).
 struct OnlineItem: Equatable, Sendable, Identifiable {
@@ -15,7 +9,7 @@ struct OnlineItem: Equatable, Sendable, Identifiable {
     let id: String
     /// KLIPY's number ID. The app does not need it today.
     let number: Int?
-    let kind: OnlineKind
+    let kind: ItemKind
     let title: String
     /// The small still picture of the tile: `sm.jpg` of a GIF, `sm.png` of a meme.
     let still: URL
@@ -73,9 +67,9 @@ enum OnlineError: Error, Equatable, Sendable {
 protocol OnlineLibrary: Sendable {
     /// One page of results for `text`. `page` starts at 1. The order is the order of the library.
     /// An empty text, or a page after the last one, gives no items and sends no request.
-    func search(_ text: String, kind: OnlineKind, page: Int) async throws -> OnlinePage
+    func search(_ text: String, kind: ItemKind, page: Int) async throws -> OnlinePage
     /// The items with these IDs, in one call (D7 of YAZ-2919). An ID that the library deleted is not in the result.
-    func items(ids: [String], kind: OnlineKind) async throws -> [OnlineItem]
+    func items(ids: [String], kind: ItemKind) async throws -> [OnlineItem]
 }
 
 /// KLIPY over `URLSession` (D1 of YAZ-2919). The requests come from this Mac, as KLIPY asks.
@@ -108,7 +102,7 @@ final class KlipyLibrary: OnlineLibrary {
         return URLSession(configuration: configuration)
     }
 
-    func search(_ text: String, kind: OnlineKind, page: Int) async throws -> OnlinePage {
+    func search(_ text: String, kind: ItemKind, page: Int) async throws -> OnlinePage {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, (1...KlipyLibrary.lastPage).contains(page) else { return OnlinePage(items: [], hasMore: false) }
         let url = try KlipyLibrary.url(key: key(), kind: kind, call: "search", query: [
@@ -121,7 +115,7 @@ final class KlipyLibrary: OnlineLibrary {
         return OnlinePage(items: list.items(kind), hasMore: list.hasNext && page < KlipyLibrary.lastPage)
     }
 
-    func items(ids: [String], kind: OnlineKind) async throws -> [OnlineItem] {
+    func items(ids: [String], kind: ItemKind) async throws -> [OnlineItem] {
         guard !ids.isEmpty else { return [] }
         let url = try KlipyLibrary.url(key: key(), kind: kind, call: "items", query: [("slugs", ids.joined(separator: ","))])
         return try KlipyLibrary.decode(try await KlipyLibrary.fetch(url, session: session)).items(kind)
@@ -136,7 +130,7 @@ final class KlipyLibrary: OnlineLibrary {
     // MARK: The request
 
     /// The path of a kind: `gifs` or `static-memes`.
-    static func path(_ kind: OnlineKind) -> String {
+    static func path(_ kind: ItemKind) -> String {
         switch kind {
         case .gif: return "gifs"
         case .meme: return "static-memes"
@@ -145,7 +139,7 @@ final class KlipyLibrary: OnlineLibrary {
 
     /// `<base>/<key>/<kind>/<call>?<query>`. The key and the values are percent-encoded,
     /// also `+` and `,` in a search text, so the server never reads them as a space or a list.
-    static func url(key: String, kind: OnlineKind, call: String, query: [(String, String)]) throws -> URL {
+    static func url(key: String, kind: ItemKind, call: String, query: [(String, String)]) throws -> URL {
         // The unreserved characters of RFC 3986. Each other character is percent-encoded.
         let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         func encode(_ text: String) -> String { text.addingPercentEncoding(withAllowedCharacters: unreserved) ?? "" }
@@ -229,7 +223,7 @@ struct KlipyList: Decodable {
 
     /// The items that the panel can show, in KLIPY's order. An item with no usable file
     /// (for example an ad, which has HTML and no `file`) has no tile, so it is skipped.
-    func items(_ kind: OnlineKind) -> [OnlineItem] {
+    func items(_ kind: ItemKind) -> [OnlineItem] {
         data.compactMap { $0.value?.item(kind) }
     }
 }
@@ -283,7 +277,7 @@ struct KlipyRaw: Decodable {
     }
 
     /// The item for the panel, with the files of the decision "the KLIPY ID is the slug" on YAZ-2928.
-    func item(_ kind: OnlineKind) -> OnlineItem? {
+    func item(_ kind: ItemKind) -> OnlineItem? {
         guard !slug.isEmpty else { return nil }
         let still: (format: String, file: Format)?
         let preview: (format: String, file: Format)?

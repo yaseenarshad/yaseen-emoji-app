@@ -45,7 +45,7 @@ enum PickItem: Equatable {
         switch self {
         case .emoji: return nil
         case .own(let item): return item.kind
-        case .online(let item): return ItemKind(rawValue: item.kind.rawValue)
+        case .online(let item): return item.kind
         }
     }
 
@@ -444,9 +444,8 @@ final class PickSession {
         case .own:
             return [.addWord, .copyOnly] + hide + [.showInFinder, .moveToTrash, .addNew]
         case .online(let item):
-            let kind = ItemKind(rawValue: item.kind.rawValue) ?? .gif
-            if isSaved(item) { return [.addWord, .copyOnly] + hide + [.removeFromYours(kind), .addNew] }
-            return [.saveToYours(kind), .copyOnly, .addNew]
+            if isSaved(item) { return [.addWord, .copyOnly] + hide + [.removeFromYours(item.kind), .addNew] }
+            return [.saveToYours(item.kind), .copyOnly, .addNew]
         }
     }
 
@@ -783,7 +782,7 @@ final class PickSession {
         let start = tiles(kind).count
         var entries: [TileEntry] = []
         for key in keys.filter({ $0.hasPrefix("klipy:") }).sorted() {
-            guard let item = online.item(String(key.dropFirst("klipy:".count))), item.kind.rawValue == kind.rawValue,
+            guard let item = online.item(String(key.dropFirst("klipy:".count))), item.kind == kind,
                   !isSaved(item) else { continue }
             entries.append(TileEntry(item: .online(item), words: [], order: start + entries.count))
         }
