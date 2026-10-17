@@ -300,4 +300,15 @@ final class FakeTextReader {
         session.addFiles([dropped])
         #expect(!session.isOpen && opened.last == [dropped])
     }
+
+    /// At quit, the temp folders of the files of promises go. Other temp files stay.
+    @Test func theTempFoldersOfADropGoAtQuit() throws {
+        let temp = try TempFolder()
+        let drop = temp.url.appendingPathComponent(FileDrop.dropFolderPrefix + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: drop, withIntermediateDirectories: true)
+        try Data("GIF89a".utf8).write(to: drop.appendingPathComponent("dance.gif"))
+        try Data("other".utf8).write(to: temp.url.appendingPathComponent("other.txt"))
+        FileDrop.cleanUp(in: temp.url)
+        #expect(temp.names(in: temp.url) == ["other.txt"])
+    }
 }

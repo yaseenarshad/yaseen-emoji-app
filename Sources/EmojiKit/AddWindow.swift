@@ -463,6 +463,18 @@ enum FileDrop {
             + PasteReader.byteTiers.joined().map { NSPasteboard.PasteboardType($0.identifier) }
     }
 
+    /// The temp folders of the files of promises: `$TMPDIR/YaseenEmoji-drop-<uuid>`.
+    nonisolated static let dropFolderPrefix = "YaseenEmoji-drop-"
+
+    /// Deletes the temp folders of the files of promises. The app calls it at quit: a row keeps the bytes of its file
+    /// after "Getting it ready…", so no row needs the file then. `temp` is a parameter, so a test gives a temp folder.
+    nonisolated static func cleanUp(in temp: URL = FileManager.default.temporaryDirectory) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? []
+        for name in names where name.hasPrefix(dropFolderPrefix) {
+            try? FileManager.default.removeItem(at: temp.appendingPathComponent(name))
+        }
+    }
+
     /// True when the drag has a form to add.
     static func accepts(_ info: NSDraggingInfo) -> Bool {
         let board = info.draggingPasteboard
@@ -476,7 +488,7 @@ enum FileDrop {
         if case .file = found.first { return done(found) }
         let promises = board.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver] ?? []
         guard !promises.isEmpty else { return done(found) }
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("YaseenEmoji-drop-\(UUID().uuidString)",
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(dropFolderPrefix + UUID().uuidString,
                                                                                    isDirectory: true)
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else {
             return done(found)

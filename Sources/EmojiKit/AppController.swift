@@ -165,9 +165,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// At quit, all the paste files go (D6 of YAZ-2919).
+    /// At quit, all the paste files go (D6 of YAZ-2919), and the temp files of a drop from a browser or Telegram.
     public func applicationWillTerminate(_ notification: Notification) {
         pasteFiles.cleanUp(all: true)
+        FileDrop.cleanUp()
     }
 
     /// Deletes the paste files that are older than 5 minutes, off the main thread.
