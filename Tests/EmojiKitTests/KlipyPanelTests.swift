@@ -15,19 +15,25 @@ final class KlipyRig {
     /// The clock of the 300 ms prefetch and the 3 s wait.
     let clock: FakeLater
     let cache: TempFolder
+    /// The kept files of D18 (`<cache>/klipy`), with a step clock for the last use of each file.
+    let kept: KlipyFiles
     let klipy: KlipyResults
     let rig: PickRig
     var session: PickSession { rig.session }
 
     /// `download` replaces the real download of the paste file, for a test of a slow file.
     /// With a `gate`, each picture fetch waits until the test lets it go.
-    init(key: Bool = true, download: KlipyResults.Download? = nil, gate: PictureGate? = nil) throws {
-        let network = StubNetwork { _ in .fail(.badServerResponse) }
+    /// `after`: a new start of the app over the folders and the network of an earlier rig (D18 of YAZ-2919).
+    init(after earlier: KlipyRig? = nil, key: Bool = true, download: KlipyResults.Download? = nil, gate: PictureGate? = nil,
+         fileLimit: Int = KlipyFiles.fileLimit, byteLimit: Int = KlipyFiles.byteLimit) throws {
+        let network = earlier?.network ?? StubNetwork { _ in .fail(.badServerResponse) }
         let keys = FakeKeyStore(key ? network.key : nil)
         let pause = ManualSleep()
         let clock = FakeLater()
-        let cache = try TempFolder()
+        let cache = try earlier?.cache ?? TempFolder()
         let files = PasteFiles(cache: cache.url, session: network.session)
+        let kept = KlipyFiles(folder: cache.url.appendingPathComponent("klipy", isDirectory: true), fileLimit: fileLimit,
+                              byteLimit: byteLimit, now: StepClock().now)
         let session = network.session
         klipy = KlipyResults(library: KlipyLibrary(keys: keys, session: session), keys: keys, later: clock,
                              download: download ?? { try await files.download($0) },
@@ -35,13 +41,15 @@ final class KlipyRig {
                                  guard let gate else { return try await KlipyLibrary.fetch(url, session: session) }
                                  return try await gate.fetch(url) { try await KlipyLibrary.fetch($0, session: session) }
                              },
+                             keptFiles: kept,
                              sleep: { try await pause.sleep($0) })
         self.network = network
         self.keys = keys
         self.pause = pause
         self.clock = clock
         self.cache = cache
-        rig = try PickRig(online: klipy)
+        self.kept = kept
+        rig = try PickRig(online: klipy, sharing: earlier?.rig.folder)
     }
 
     /// One GIF item of KLIPY with its media on this network.
@@ -351,24 +359,85 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         #expect(klipy.onlineSlugs == (1...4).flatMap { page in (0..<24).map { "p\(page)-\($0)" } })
     }
 
-    /// D7: "Save to your GIFs" keeps only the slug, with the search text as its word, so it shows in "Yours"
-    /// for that word. "Remove from your GIFs" removes it on both Macs (two library files).
-    @Test func saveShowsItInYoursAndRemoveIsOnBothMacs() async throws {
+    /// D18: "Save to your GIFs" copies the file into `gifs/` as your own item, with KLIPY's title and the search text
+    /// as its word. A kept file copies with no download. An item with no kept file downloads its paste file.
+    /// The card stays, and the GIF does not show two times in "Yours": your item takes the place of its card.
+    @Test func saveCopiesTheFileIntoYourGIFs() async throws {
         let klipy = try KlipyRig()
-        let page = klipyPage(klipy, ["cat-1", "cat-2"], hasNext: false)
-        klipy.network.setReply { _ in .json(page) }
+        let network = klipy.network
+        func item(_ number: Int, _ slug: String, _ title: String) -> String {
+            KlipySample.gif(number: number, slug: slug, title: title) { network.mediaURL("\(slug)/\($0)").absoluteString }
+        }
+        let page = KlipySample.page([item(1, "cat-1", "Cat one"), item(2, "cat-2", "Cat Two")], hasNext: false)
+        let one = makeTestImage(width: 21, height: 20, type: .gif, frames: 2)
+        let two = makeTestImage(width: 22, height: 20, type: .gif, frames: 2)
+        klipy.network.setReply { request in
+            guard request.url?.host == "static.klipy.com" else { return .json(page) }
+            return .answer(status: 200, body: request.url?.path.contains("cat-1") == true ? one : two)
+        }
         let rig = klipy.rig
         let session = klipy.session
         await klipy.search("cat")
+        // A pick of "Cat Two" keeps its file and its card.
         session.select(1)
-        #expect(session.menuActions(at: 1) == [.saveToYours(.gif), .copyOnly, .addNew])
+        session.copyOnly()
+        await waitUntil { klipy.kept.names == ["cat-2.gif"] }
+        #expect(rig.library.card("cat-2")?.title == "Cat Two")
+        #expect(klipy.requests("media").count == 1)
+
+        // "Save to your GIFs" on its card in "Yours": the kept file is the source, so no new download.
+        await klipy.search("cat")
+        let place = try rig.place(of: "klipy:cat-2")
+        #expect(place == 0)
+        session.select(place)
+        #expect(session.menuActions(at: place) == [.saveToYours(.gif), .copyOnly, .addNew])
         session.perform(.saveToYours(.gif))
-        let id = Item.klipyItemID("cat-2")
-        #expect(rig.library.item(id)?.file == nil && rig.library.item(id)?.klipyID == "cat-2")
-        #expect(rig.library.item(id)?.words == ["cat"])
-        // At once: "Yours" has it, and "From KLIPY" keeps KLIPY's order.
+        await waitUntil { rig.library.items(.gif).count == 1 }
+        let own = try #require(rig.library.items(.gif).first)
+        let copied = PreparedFile(bytes: two, ext: "gif", kind: .gif)
+        #expect(own.id == copied.id && own.file == "gifs/\(copied.id).gif" && own.key == "gif:\(copied.id)")
+        #expect(own.title == "Cat Two" && own.words == ["cat"] && own.klipyID == "cat-2")
+        #expect(try Data(contentsOf: rig.folder.defaultFolder.appendingPathComponent("gifs/\(copied.id).gif")) == two)
+        #expect(klipy.requests("media").count == 1)
+        #expect(klipy.kept.names == ["cat-2.gif"])
+        // The card stays. "Yours" shows your item, and not the card a second time. "From KLIPY" keeps KLIPY's order.
+        #expect(rig.library.card("cat-2") != nil)
+        await waitUntil { session.items.first == .own(own) }
         #expect(session.lines == [.title("Yours"), .cells(0..<1), .title("From KLIPY"), .cells(1..<3)])
-        #expect(klipy.onlineSlugs == ["cat-2", "cat-1", "cat-2"])
+        #expect(klipy.onlineSlugs == ["cat-1", "cat-2"])
+
+        // "Cat one" has no kept file: the save downloads its paste file. A save is not a pick: no card, no use.
+        session.select(1)
+        session.perform(.saveToYours(.gif))
+        await waitUntil { rig.library.items(.gif).count == 2 }
+        #expect(klipy.requests("media").count == 2)
+        #expect(rig.library.items(.gif).map(\.title).sorted() == ["Cat Two", "Cat one"])
+        #expect(rig.library.card("cat-1") == nil && rig.store.you.uses["klipy:cat-1"] == nil)
+
+        // Mac B reads the list of this Mac: two own items, synced like a meme.
+        let macB = LibraryStore(url: rig.folder.defaultFolder.appendingPathComponent("library-B.json"),
+                                mediaFolder: rig.folder.defaultFolder)
+        macB.load()
+        #expect(macB.items.count == 2 && macB.items.allSatisfy { $0.file != nil })
+        session.close()
+    }
+
+    /// D7 and D18: a KLIPY item that an earlier build saved by its slug still shows in "Your GIFs", and in "Yours" for
+    /// its word. Its first lookup makes its card. "Remove from your GIFs" removes it on both Macs (two library files).
+    @Test func anOldSavedKLIPYItemKeepsRemoveOnBothMacs() async throws {
+        let klipy = try KlipyRig()
+        let items = KlipySample.items([klipy.gif("cat-2")])
+        let page = klipyPage(klipy, ["cat-1", "cat-2"], hasNext: false)
+        klipy.network.setReply { request in request.url?.path.hasSuffix("/items") == true ? .json(items) : .json(page) }
+        let rig = klipy.rig
+        let id = Item.klipyItemID("cat-2")
+        rig.library.saveKlipy("cat-2", kind: .gif, words: ["cat"])
+        let session = klipy.session
+        session.open()
+        session.select(tab: .gifs)
+        await waitUntil { session.lines == [.title("Your GIFs"), .cells(0..<1)] }
+        #expect(klipy.requests("items").count == 1)
+        #expect(rig.library.card("cat-2")?.lastUsed == rig.library.item(id)?.added)
 
         // Mac B reads the list of this Mac and sees the saved item.
         let macB = LibraryStore(url: rig.folder.defaultFolder.appendingPathComponent("library-B.json"),
@@ -376,23 +445,21 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         macB.load()
         #expect(macB.items.map(\.id) == [id])
 
-        // The next open: "Your GIFs" shows it with no search, and "Yours" with the word.
-        session.close()
-        session.open()
-        session.select(tab: .gifs)
-        #expect(session.lines == [.title("Your GIFs"), .cells(0..<1)])
         await klipy.search("cat")
-        #expect(klipy.requests("search").count == 1)
-        #expect(session.items.first == .online(try #require(klipy.klipy.item("cat-2", kind: .gif))))
+        #expect(session.lines == [.title("Yours"), .cells(0..<1), .title("From KLIPY"), .cells(1..<3)])
+        #expect(klipy.onlineSlugs == ["cat-2", "cat-1", "cat-2"])
         session.select(0)
         #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .removeFromYours(.gif), .addNew])
         session.perform(.removeFromYours(.gif))
         #expect(rig.library.item(id)?.isRemoved == true)
-        #expect(session.lines == [.title("From KLIPY"), .cells(0..<2)])
+        // The card stays. It is not saved now, so its menu has "Save to your GIFs".
+        #expect(rig.library.card("cat-2") != nil)
+        #expect(session.menuActions(at: 0) == [.saveToYours(.gif), .copyOnly, .addNew])
 
         // Mac B: gone at its next reload.
         macB.reload()
         #expect(macB.items.isEmpty && macB.item(id)?.isRemoved == true)
+        session.close()
     }
 
     /// D7: "Yours" also shows the saved KLIPY items and the KLIPY items that you picked for this text before.
@@ -465,8 +532,12 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
 
         session.enter(shift: false)
         #expect(!session.isOpen)
-        #expect(klipy.rig.clipboard.contents.items.first?.values.first?.data == Data(file.absoluteString.utf8))
+        // D18: the paste file moved into the kept files with no second download. The clipboard has the kept file.
+        let kept = klipy.kept.folder.appendingPathComponent("shaq-dance.gif")
+        #expect(klipy.rig.clipboard.contents.items.first?.values.first?.data == Data(kept.absoluteString.utf8))
         #expect(klipy.rig.clipboard.contents.items.first?.values.map(\.type).prefix(2) == ["public.file-url", "com.compuserve.gif"])
+        #expect(try Data(contentsOf: kept) == bytes && !FileManager.default.fileExists(atPath: file.path))
+        #expect(klipy.requests("media").count == 1)
         #expect(klipy.rig.store.you.uses["klipy:shaq-dance"]?.count == 1)
         #expect(klipy.rig.store.you.learned["hi"]?["klipy:shaq-dance"]?.count == 1)
     }
@@ -506,7 +577,9 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         await waitUntil { gate.waiting > 0 }
         gate.wake()
         await waitUntil { !session.isOpen }
-        #expect(klipy.rig.clipboard.contents.items.first?.values.first?.data == Data(ready.absoluteString.utf8))
+        // D18: the file moved into the kept files.
+        let kept = klipy.kept.folder.appendingPathComponent("hello-hi-662.gif")
+        #expect(klipy.rig.clipboard.contents.items.first?.values.first?.data == Data(kept.absoluteString.utf8))
         #expect(klipy.rig.store.you.uses["klipy:hello-hi-662"]?.count == 1)
         #expect(PickSession.cantGetText(.meme) == "Can't get this meme from KLIPY.")
     }

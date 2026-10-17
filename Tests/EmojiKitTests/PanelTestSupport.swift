@@ -168,8 +168,9 @@ final class PickRig {
     /// The KLIPY key of `parts`: none by default.
     let klipyKey = FakeKeyStore()
 
-    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil) throws {
-        folder = try TempFolder()
+    /// `sharing`: the folder of an earlier rig, for a new start of the app over the same files (D18 of YAZ-2919).
+    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil, sharing: TempFolder? = nil) throws {
+        folder = try sharing ?? TempFolder()
         prefs = Prefs(defaults: defaults)
         store = YouStore(url: folder.youFile)
         store.load()
@@ -236,6 +237,7 @@ final class PickRig {
                  // A stub session with no route: each request fails as "not connected". No test goes online.
                  onlineSession: KlipyLibrary.makeSession(protocolClasses: [StubURLProtocol.self]),
                  cacheFolder: folder.url.appendingPathComponent("Caches", isDirectory: true),
+                 klipyFolder: folder.url.appendingPathComponent("klipy", isDirectory: true),
                  makePanel: { [panel] _ in panel })
     }
 }
@@ -275,7 +277,9 @@ final class FakeOnline: OnlineResults {
 
     func loadMore(for text: String, kind: ItemKind) {}
     func selectionChanged(to item: OnlineItem?) {}
+    func item(for card: KlipyCard) -> OnlineItem? { known[card.slug] ?? OnlineItem(card: card) }
     func pasteFile(for item: OnlineItem) -> URL? { files[item.id] }
+    func keepFile(of item: OnlineItem) -> URL? { files[item.id] }
     func getPasteFile(for item: OnlineItem, done: @escaping @MainActor (URL?) -> Void) { done(files[item.id]) }
     func still(for item: OnlineItem) -> NSImage? { nil }
     func moving(for item: OnlineItem) -> NSImage? { nil }

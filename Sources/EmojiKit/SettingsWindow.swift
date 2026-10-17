@@ -2,49 +2,79 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// The rows of the settings window (D10): the hotkey, "Default skin tone", "Start at login",
-/// "When you press Enter" (D16 of YAZ-2919), the Accessibility line, "Hidden from Your most used", "Forget learned words",
-/// the preferences folder (D16), and "GIFs and memes" (D14 of YAZ-2919).
+/// The settings window (D10): the list of pages on the left and the page on the right (D19 of YAZ-2919).
+/// Each page draws its rows from `SettingsPage.sections`. A long page scrolls inside the window.
 /// Each change saves at once.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
+    /// The fixed size of the window. It does not follow the height of a page.
+    static let size = CGSize(width: 680, height: 480)
+
     var body: some View {
-        Form {
-            Section {
-                hotKeyRow
-                toneRow
-                startAtLoginRow
+        HStack(spacing: 0) {
+            List(selection: Binding<SettingsPage?>(
+                get: { model.page },
+                set: { if let page = $0 { model.select(page) } }
+            )) {
+                ForEach(SettingsPage.allCases, id: \.self) { page in
+                    Label(page.title, systemImage: page.symbol).tag(page)
+                }
             }
-            Section {
-                ForEach(PickKind.allCases, id: \.self) { enterRow($0) }
-            } header: {
-                Text("When you press Enter")
-            } footer: {
-                Text(model.enterText).font(.callout).foregroundStyle(.secondary)
-            }
-            Section("Accessibility") {
-                accessibilityRow
-            }
-            Section("Your most used") {
-                hiddenRow
-            }
-            Section("Learned words") {
-                forgetRow
-            }
-            Section("Preferences folder") {
-                folderRow
-            }
-            Section("GIFs and memes") {
-                mediaFolderRow
-                klipyKeyRow
-                klipySwitch("Search KLIPY in GIFs", kind: .gif)
-                klipySwitch("Search KLIPY in Memes", kind: .meme)
-            }
+            .listStyle(.sidebar)
+            .frame(width: 180)
+            Divider()
+            pageView(model.page)
         }
-        .formStyle(.grouped)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: SettingsView.size.width, height: SettingsView.size.height)
+    }
+
+    /// The title of the page, then its sections in a grouped form that scrolls.
+    private func pageView(_ page: SettingsPage) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(page.title)
+                .font(.title2.bold())
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+            Form {
+                ForEach(page.sections, id: \.self) { section in
+                    Section {
+                        ForEach(section.rows, id: \.self) { row($0) }
+                    } header: {
+                        if let title = section.title { Text(title) }
+                    } footer: {
+                        if section.showsEnterText {
+                            Text(model.enterText).font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            // A new page starts at its top.
+            .id(page)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// One `case` for each row, with no `default`: a new row does not build until it has a view.
+    @ViewBuilder
+    private func row(_ row: SettingsRow) -> some View {
+        switch row {
+        case .hotKey: hotKeyRow
+        case .defaultTone: toneRow
+        case .startAtLogin: startAtLoginRow
+        case .accessibility: accessibilityRow
+        case .enterEmojis: enterRow(.emoji)
+        case .enterGIFs: enterRow(.gif)
+        case .enterMemes: enterRow(.meme)
+        case .klipyKey: klipyKeyRow
+        case .klipyGIFs: klipySwitch("Search KLIPY in GIFs", kind: .gif)
+        case .klipyMemes: klipySwitch("Search KLIPY in Memes", kind: .meme)
+        case .mediaFolder: mediaFolderRow
+        case .hiddenFromMostUsed: hiddenRow
+        case .forgetLearnedWords: forgetRow
+        case .preferencesFolder: folderRow
+        }
     }
 
     /// The recorder: "Change…" starts it, and the same button stops it.
@@ -148,14 +178,19 @@ struct SettingsView: View {
         }
     }
 
-    /// D16: the folder of the history files, the folder picker, and the way back to the default folder.
+    /// D16: the folder of the history files, "Show in Finder" (D19 of YAZ-2919), the folder picker,
+    /// and the way back to the default folder.
     private var folderRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             LabeledContent("Preferences folder") {
-                Text((model.folderPath as NSString).abbreviatingWithTildeInPath)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(model.folderPath)
+                HStack {
+                    Text((model.folderPath as NSString).abbreviatingWithTildeInPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(model.folderPath)
+                    Button("Show in Finder") { model.showPreferencesFolder() }
+                        .disabled(model.folderIsMissing)
+                }
             }
             HStack {
                 Text(model.folderIsDefault
@@ -183,14 +218,19 @@ struct SettingsView: View {
         }
     }
 
-    /// D14 of YAZ-2919: the folder of `gifs/` and `memes/`, the folder picker, and the way back to the preferences folder.
+    /// D14 of YAZ-2919: the folder of `gifs/` and `memes/`, "Show in Finder" (D19), the folder picker,
+    /// and the way back to the preferences folder.
     private var mediaFolderRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             LabeledContent("GIFs and memes folder") {
-                Text((model.mediaFolderPath as NSString).abbreviatingWithTildeInPath)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(model.mediaFolderPath)
+                HStack {
+                    Text((model.mediaFolderPath as NSString).abbreviatingWithTildeInPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(model.mediaFolderPath)
+                    Button("Show in Finder") { model.showMediaFolder() }
+                        .disabled(model.mediaFolderIsMissing)
+                }
             }
             Text(model.mediaFolderIsSame ? SettingsModel.mediaSameText : SettingsModel.mediaDifferentText)
                 .font(.callout).foregroundStyle(.secondary)
@@ -317,7 +357,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // to make it the active app. A normal window then opens with no keyboard, and it goes behind
         // the windows of the active app (Screendraw, YAZ-2823). This panel takes the keyboard without the active app.
         window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 10),
+            contentRect: NSRect(origin: .zero, size: SettingsView.size),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: true
@@ -334,7 +374,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
 
         let host = NSHostingController(rootView: SettingsView(model: model))
-        // The window follows the height of the form: a red line adds a row.
+        // The window takes the fixed size of the view (D19 of YAZ-2919). A long page scrolls inside it.
         host.sizingOptions = [.preferredContentSize]
         window.contentViewController = host
         window.center()

@@ -99,19 +99,72 @@ public struct Item: Codable, Equatable, Sendable {
     }
 }
 
+/// A KLIPY GIF or meme that you used (D18 of YAZ-2919). It syncs in `library-<Mac name>.json`, so the panel
+/// makes its tile at once, with no lookup call. The file itself stays on this Mac only (`KlipyFiles`).
+public struct KlipyCard: Codable, Equatable, Sendable {
+    /// The KLIPY slug, the ID of D7.
+    public var slug: String
+    public var kind: ItemKind
+    /// KLIPY's title (D15).
+    public var title: String
+    /// The URLs of `OnlineItem`, as KLIPY gave them: the still, the moving preview (nil for a meme), the paste file.
+    public var still: URL
+    public var preview: URL?
+    public var file: URL
+    /// The UTType identifier of `file`, for example `com.compuserve.gif`, and its extension.
+    public var fileType: String
+    public var fileExtension: String
+    /// The size of `file`: pixels, and bytes when KLIPY gave them.
+    public var width: Int
+    public var height: Int
+    public var bytes: Int?
+    /// The last pick on any Mac. The newest wins in the merge, and the oldest card goes first at the limit.
+    public var lastUsed: Date
+
+    /// The key of the card in `LibraryFile.cards` and in `you-<Mac>.json`: `klipy:<slug>`.
+    public var key: String { KlipyCard.key(slug) }
+
+    public static func key(_ slug: String) -> String { "klipy:\(slug)" }
+
+    /// The card that wins for one key: the newest `lastUsed`. The same time: the larger title, then the larger
+    /// file URL, so each Mac selects the same card.
+    static func winner(_ a: KlipyCard, _ b: KlipyCard) -> KlipyCard {
+        if a.lastUsed != b.lastUsed { return a.lastUsed > b.lastUsed ? a : b }
+        if a.title != b.title { return a.title > b.title ? a : b }
+        return a.file.absoluteString >= b.file.absoluteString ? a : b
+    }
+}
+
 /// The contents of one list file, `library-<Mac name>.json` (D3 of YAZ-2919): the items that this Mac added
-/// or changed, by `id`. The keys are sorted in the file, so a change gives a small git diff.
+/// or changed, by `id`, and the cards of the KLIPY items that this Mac used (D18), by `klipy:<slug>`.
+/// The keys are sorted in the file, so a change gives a small git diff.
 public struct LibraryFile: Codable, Equatable, Sendable {
     public var items: [String: Item]
+    public var cards: [String: KlipyCard]
 
-    public init(items: [String: Item] = [:]) {
+    public init(items: [String: Item] = [:], cards: [String: KlipyCard] = [:]) {
         self.items = items
+        self.cards = cards
     }
 
-    /// A field that is missing gives an empty value.
+    /// A field that is missing gives an empty value: a file of an earlier build has no `cards`.
+    /// A card that cannot be read is skipped, so it never makes the full file bad.
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         items = try values.decodeIfPresent([String: Item].self, forKey: .items) ?? [:]
+        let read = (try? values.decodeIfPresent([String: Lenient<KlipyCard>].self, forKey: .cards)) ?? [:]
+        cards = read.compactMapValues(\.value)
+    }
+
+    /// The cards of all Macs: for each key, the card of `KlipyCard.winner` (D18 of YAZ-2919).
+    public static func combineCards(own: LibraryFile, others: [LibraryFile]) -> [String: KlipyCard] {
+        var combined = own.cards
+        for file in others {
+            for (key, card) in file.cards {
+                combined[key] = combined[key].map { KlipyCard.winner($0, card) } ?? card
+            }
+        }
+        return combined
     }
 
     /// The list of all Macs: for each `id`, the item of `Item.winner`. Removed items stay in the result,
@@ -264,6 +317,8 @@ public final class LibraryStore {
     public private(set) var all: [String: Item] = [:]
     /// The items that are not removed, the newest add first. The panel reads this.
     public private(set) var items: [Item] = []
+    /// The cards of the KLIPY items that you used, of all Macs, by `klipy:<slug>` (D18 of YAZ-2919).
+    public private(set) var cards: [String: KlipyCard] = [:]
     /// The `id`s of the items whose file is not in the GIFs and memes folder: deleted in Finder, or before a `git pull`.
     /// The panel does not show them (D13 update on YAZ-2926).
     public private(set) var missing: Set<String> = []
@@ -361,17 +416,22 @@ public final class LibraryStore {
     /// The same `id` again adds only the new words, and says so (`alreadyThere`). It writes the file again
     /// when it is missing. An item that was removed comes back, with its old words and the new words.
     /// `title` (D15 of YAZ-2919): an empty title keeps the title that the item has.
+    /// `klipyID` (D18 of YAZ-2919): the slug of the KLIPY item that "Save to your GIFs" copied. The `key` of the item
+    /// stays `gif:<id>`, because it has a file. The card of that slug then does not show as a second tile.
     @discardableResult
-    public func add(_ file: PreparedFile, as kind: ItemKind? = nil, words: [String], title: String = "") throws -> AddResult {
+    public func add(_ file: PreparedFile, as kind: ItemKind? = nil, words: [String], title: String = "",
+                    klipyID: String? = nil) throws -> AddResult {
         let words = Item.clean(words)
         let title = Item.cleanTitle(title)
         if var item = all[file.id], !item.isRemoved {
             try write(file, at: item.file)
             let new = words.filter { !item.words.contains($0) }
             let newTitle = !title.isEmpty && title != item.title
-            if !new.isEmpty || newTitle {
+            let newLink = item.klipyID == nil && klipyID != nil
+            if !new.isEmpty || newTitle || newLink {
                 item.words += new
                 if newTitle { item.title = title }
+                if newLink { item.klipyID = klipyID }
                 item.changed = now()
                 change(item)
             }
@@ -383,7 +443,8 @@ public final class LibraryStore {
         try write(file, at: path)
         let time = now()
         let old = all[file.id]?.words ?? []
-        let item = Item(id: file.id, kind: kind, file: path, klipyID: nil, words: old + words.filter { !old.contains($0) },
+        let item = Item(id: file.id, kind: kind, file: path, klipyID: klipyID ?? all[file.id]?.klipyID,
+                        words: old + words.filter { !old.contains($0) },
                         title: title.isEmpty ? all[file.id]?.title ?? "" : title, added: time, changed: time)
         change(item)
         _ = checkFiles()
@@ -409,8 +470,9 @@ public final class LibraryStore {
         change(item)
     }
 
-    /// "Save to your GIFs" (or memes) for a KLIPY item (D7): only its ID goes into the list, never a file.
-    /// A KLIPY item that is already saved stays as it is.
+    /// A saved KLIPY item of D7: only its ID goes into the list, never a file. A KLIPY item that is already saved stays
+    /// as it is. Since D18 of YAZ-2919, "Save to your GIFs" copies the file instead (`add` with `klipyID`). The app still
+    /// reads, shows and removes the items of this kind that an earlier build saved. The tests make them here.
     @discardableResult
     public func saveKlipy(_ klipyID: String, kind: ItemKind, words: [String] = []) -> Item {
         let id = Item.klipyItemID(klipyID)
@@ -430,6 +492,40 @@ public final class LibraryStore {
         item.changed = time
         change(item)
         _ = checkFiles()
+    }
+
+    // MARK: The cards of KLIPY items (D18 of YAZ-2919)
+
+    /// The most cards in this Mac's file. A write drops the least recently used card of this Mac's file.
+    public static let cardLimit = 2_000
+
+    /// The card of this slug, from any Mac, or nil.
+    public func card(_ slug: String) -> KlipyCard? { cards[KlipyCard.key(slug)] }
+
+    /// A pick of a KLIPY item: its card, with the new last use, goes into this Mac's file.
+    public func useCard(_ card: KlipyCard) {
+        var card = card
+        card.lastUsed = now()
+        keep(card)
+    }
+
+    /// The first lookup of a used or saved KLIPY item with no card (the items of an earlier build): its card, with the
+    /// last use that the history has. A card that is there already stays as it is.
+    public func addCard(_ card: KlipyCard) {
+        guard cards[card.key] == nil else { return }
+        keep(card)
+    }
+
+    private func keep(_ card: KlipyCard) {
+        own.cards[card.key] = card
+        if own.cards.count > LibraryStore.cardLimit {
+            let oldest = own.cards.values.sorted { a, b in
+                a.lastUsed != b.lastUsed ? a.lastUsed < b.lastUsed : a.key < b.key
+            }
+            for old in oldest.prefix(own.cards.count - LibraryStore.cardLimit) { own.cards[old.key] = nil }
+        }
+        save()
+        combine()
     }
 
     // MARK: The files
@@ -478,6 +574,7 @@ public final class LibraryStore {
 
     private func combine() {
         all = LibraryFile.combine(own: own, others: others.values)
+        cards = LibraryFile.combineCards(own: own, others: others.values)
         items = all.values.filter { !$0.isRemoved }.sorted { a, b in
             a.added != b.added ? a.added > b.added : a.id < b.id
         }

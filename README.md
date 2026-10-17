@@ -24,7 +24,15 @@ Press ⌘E in any app, type a word, and the correct emoji comes up. Enter puts i
 
 ## Settings
 
-The menu bar icon (a smiley) has "Find an emoji", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has the hotkey, "When you press Enter" (for emojis, GIFs and memes: Paste or Copy only, and "Keep it on the clipboard after a paste"), the default skin tone (the only skin tone choice), "Start at login", the Accessibility state, "Hidden from Your most used" with "Show them again", "Forget learned words", and the preferences folder. Each change saves at once.
+The menu bar icon (a smiley) has "Find an emoji", "Add a GIF or meme…", "Settings…", "Start at login" and "Quit Yaseen Emoji". Settings has a list of pages on the left. It opens on the page that you used last on this Mac:
+
+- **General:** the hotkey, the default skin tone (the only skin tone choice), "Start at login", and the Accessibility state.
+- **Enter and paste:** "When you press Enter" for emojis, GIFs and memes: Paste or Copy only, and "Keep it on the clipboard after a paste".
+- **GIFs and memes:** the KLIPY key, "Search KLIPY in GIFs", "Search KLIPY in Memes", and the GIFs and memes folder with "Show in Finder".
+- **Your history:** "Hidden from Your most used" with "Show them again", and "Forget learned words".
+- **Sync folder:** the preferences folder with "Show in Finder".
+
+Each change saves at once.
 
 To paste for you, the app needs the Accessibility permission. It asks one time, at the first start. Without it, a pick copies the emoji only.
 

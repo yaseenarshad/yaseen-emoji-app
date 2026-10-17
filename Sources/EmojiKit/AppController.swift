@@ -26,6 +26,9 @@ struct AppParts {
     var onlineSession: URLSession
     /// `~/Library/Caches/Yaseen Emoji` in the app. The paste files of KLIPY items go into `paste/` (D6 of YAZ-2919).
     var cacheFolder: URL
+    /// The files of the KLIPY items that you used (D18 of YAZ-2919): `~/Library/Application Support/Yaseen Emoji/klipy`
+    /// in the app, on this Mac only. A temp folder in a test.
+    var klipyFolder: URL
     /// Makes the search panel on the screen for the session.
     var makePanel: (PickSession) -> PickPanel
 
@@ -45,6 +48,7 @@ struct AppParts {
             onlineSession: KlipyLibrary.makeSession(),
             cacheFolder: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Yaseen Emoji", isDirectory: true),
+            klipyFolder: YouStore.defaultFolder.appendingPathComponent("klipy", isDirectory: true),
             makePanel: { SearchPanelController(session: $0) }
         )
     }
@@ -120,7 +124,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
         thumbnails = Thumbnails(folder: parts.thumbnailFolder)
         pasteFiles = PasteFiles(cache: parts.cacheFolder, session: parts.onlineSession)
-        klipy = KlipyResults(keys: parts.klipyKey, session: parts.onlineSession, pasteFiles: pasteFiles, later: parts.later)
+        klipy = KlipyResults(keys: parts.klipyKey, session: parts.onlineSession, pasteFiles: pasteFiles,
+                             keptFiles: KlipyFiles(folder: parts.klipyFolder), later: parts.later)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
                                  folders: folders, library: library, keyStore: parts.klipyKey)
     }
