@@ -71,9 +71,20 @@ The history and the synced settings are in the preferences folder. The default i
 - **The counts and the learned words** stay in `you-<Mac name>.json`, with the keys `gif:<id>`, `meme:<id>` and `klipy:<klipyID>`.
 - **The still pictures:** `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png`, 290 × 290 pixels. They are not synced. The panel makes a missing one when its tile shows, and deletes it when the item is removed, on this Mac or on a different Mac.
 
-### Add GIFs and memes from the Terminal (before the add window)
+### The add window (D12 of YAZ-2919)
 
-The add window comes in subissue 3 of YAZ-2908. Until then, quit the app, then run the binary inside the app:
+"Add a GIF or meme…" in the menu bar or in the right-click menu of the GIFs and Memes tabs opens the add window. A drop of files on the search panel also opens it, with the files. It is a non-activating panel, like Settings, and it stays open until you close it.
+
+- **Ways to add:** drop files on the window, "Choose files…" (more than one file), "Paste", or ⌘V.
+- **The paste** reads the best form on the clipboard, in this order: a file URL, GIF bytes, video bytes (MP4, MOV), then still image bytes (PNG, JPEG, HEIC, HEIF, TIFF). The first form that any clipboard item has wins, and each item with that form gives one row. A still picture shows the grey line "This came in as a still picture. To keep it moving, save the file and drag it in."
+- **A drop** takes files, then file promises (a drag from a browser or from Telegram, received into a temp folder), then the same bytes as a paste.
+- **Each row:** "Getting it ready…" while `MediaImport.prepare` runs off the main thread. Then the preview, GIF / Meme, the words box, "Add" and "Remove". A meme gets its read words (D8). "Add" needs one word ("Type one word first."). A duplicate says "You have this one already." and adds only its new words.
+- **The add:** the file goes into `gifs/` or `memes/` off the main thread (`LibraryStore.writeMediaFile`). Then `LibraryStore.add` saves the list on the main thread, because the panel reads the list there.
+- **A close** with rows that wait asks "Close and drop N files?" in the window. A refused row does not count.
+
+### Add GIFs and memes from the Terminal
+
+For a fast test with many files, quit the app, then run the binary inside the app:
 
 ```bash
 "/Applications/Yaseen Emoji.app/Contents/MacOS/YaseenEmoji" --add-media ~/Downloads/dance.gif ~/Downloads/fine.png --words "dance party"
@@ -96,7 +107,7 @@ To point the app at a folder without Settings, quit the app, then run `defaults 
 The parts of `EmojiKit`:
 
 - `AppController`: the app shell. It loads the catalog off the main thread, and connects the hotkey, the menu, Settings and the panel. `AppParts` holds the parts that touch the system, so a test gives fakes.
-- `StatusMenu`: the menu bar icon (the SF Symbol `face.smiling`, as a template image) and its four rows.
+- `StatusMenu`: the menu bar icon (the SF Symbol `face.smiling`, as a template image) and its five rows.
 - `EmojiData.swift`: `Emoji` and `EmojiCatalog`, the loader of `emoji.json`.
 - `DrawCheck`: hides each emoji that the Apple Color Emoji font of this Mac cannot draw as one picture.
 - `Search`: the search and its order. The order is in one function, `Search.rank` (D5). A change of the order touches only that function and the table in `SearchTests`.
@@ -106,7 +117,8 @@ The parts of `EmojiKit`:
 - `Library.swift`: `Item` (one GIF or meme), `LibraryFile` (one `library-<Mac name>.json`), `LibraryStore` (this Mac's list, the lists of the other Macs, the add of a file, the remove to the Trash, the missing files), and `MediaFolder` (the GIFs and memes folder and its move). `Trash` is a protocol, so a test never touches the real Trash.
 - `MediaImport`: the add of a file (D5 and D8 of YAZ-2919): the kind from the bytes, MP4 and MOV to GIF, the 10 MB limit, the still picture of a tile, and the words of a meme with Vision. Each call runs off the main thread.
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
-- `AddCommand`: `--add-media`, the add of GIFs and memes from the Terminal, until the add window exists.
+- `AddCommand`: `--add-media`, the add of GIFs and memes from the Terminal.
+- `AddWindow.swift`: the add window (D12 of YAZ-2919). `AddModel` holds the rows and their rules, with no view. `PasteReader` finds the best form on the clipboard through `PasteboardSource`, a protocol, so a test gives a fake clipboard. `FileDrop` reads a drop. `AddWindowController` is the non-activating panel with the SwiftUI view.
 - `PickSession`: the rules of the panel with no window: the tab (Emoji, GIFs, Memes; each open starts on Emoji), the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`, `perform(_:)`) and "Hide from Your most used". One grid item is a `PickItem`: an emoji, your own GIF or meme, or a KLIPY item. Its `key` is the key in `you-<Mac>.json`. The GIFs and Memes tabs use the same `Search` as the emojis (`Searchable`, `TileEntry`).
 - `OnlineResults.swift`: the place of KLIPY in the GIFs and Memes tabs. With no `OnlineResults`, the tabs show only your own files and no "From KLIPY" section.
 - `Paster`: a pick. It saves the clipboard, writes the emoji or the file, posts ⌘V, and puts the old clipboard back after 0.3 s (a file: 1.0 s). A file is one clipboard item (`ClipboardContents.fileItem`): the file URL, the file's own bytes in its own type, and the transient mark for a paste. No TIFF. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
@@ -126,7 +138,7 @@ The parts of `EmojiKit`:
 
 - A test opens no window and uses no mouse and no keyboard. A test posts no key event.
 - A test never registers a real hotkey or a real login item. It uses a fake one.
-- A test never reads or changes the real clipboard. It uses a fake one.
+- A test never reads or changes the real clipboard. It uses a fake one. The paste of the add window reads a `ClipboardContents` in the test.
 - A test never touches the real Trash. It uses `FakeTrash` in a temp folder. The videos and pictures of the import tests are made in the test.
 - A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`.
 - A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.

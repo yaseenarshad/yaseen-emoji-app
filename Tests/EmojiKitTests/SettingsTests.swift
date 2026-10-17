@@ -145,7 +145,7 @@ import Testing
 
         // The rows, and the hotkey on "Find an emoji".
         let menu = app.statusMenu.menu
-        #expect(menu.items.map(\.title) == ["Find an emoji", "", "Settings…", "Start at login", "", "Quit Yaseen Emoji"])
+        #expect(menu.items.map(\.title) == ["Find an emoji", "Add a GIF or meme…", "", "Settings…", "Start at login", "", "Quit Yaseen Emoji"])
         let find = try #require(menu.item(withTitle: "Find an emoji"))
         #expect(find.keyEquivalent == "e" && find.keyEquivalentModifierMask == .command)
 

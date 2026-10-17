@@ -77,6 +77,60 @@ final class SearchPanel: NSPanel {
     }
 }
 
+/// The background of the search panel. A drop of files on any part of the panel goes to the add window (D12 of YAZ-2919).
+final class PanelBackgroundView: NSVisualEffectView {
+    let fileDrop = FileDropTarget()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes(FileDrop.types)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { fileDrop.entered(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { fileDrop.exited() }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { fileDrop.perform(sender) }
+}
+
+/// The field editor of the search box. A text view takes a file drag and types its path. This one gives
+/// a drag with files to the panel, so the drop goes to the add window. A drag of text works as before.
+final class SearchFieldEditor: NSTextView {
+    weak var panelBackground: PanelBackgroundView?
+
+    private func takesFiles(_ info: NSDraggingInfo) -> Bool {
+        panelBackground != nil && FileDrop.accepts(info)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard takesFiles(sender), let panelBackground else { return super.draggingEntered(sender) }
+        return panelBackground.fileDrop.entered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        takesFiles(sender) ? .copy : super.draggingUpdated(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let sender, takesFiles(sender) { return }
+        super.draggingExited(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        takesFiles(sender) ? true : super.prepareForDragOperation(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard takesFiles(sender), let panelBackground else { return super.performDragOperation(sender) }
+        return panelBackground.fileDrop.perform(sender)
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        if let sender, takesFiles(sender) { return }
+        super.concludeDragOperation(sender)
+    }
+}
+
 /// The search panel on the screen: the search box, the tabs and the grid (D7, D8; D10 of YAZ-2919). It is the thin adapter of
 /// `PickSession`: it turns keys and clicks into calls of the session, and shows what the session holds.
 /// One panel for the life of the app. It hides and shows again, so it opens fast.
@@ -93,6 +147,8 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     private let session: PickSession
     private let panel: SearchPanel
     private let field = NSTextField()
+    /// The field editor of `field`: a drop of files on the search box goes to the add window, not into the text.
+    private let fieldEditor = SearchFieldEditor()
     private let tabs = NSSegmentedControl(labels: PickSession.Tab.allCases.map(\.title), trackingMode: .selectOne,
                                           target: nil, action: nil)
     private let grid: EmojiGridView
@@ -119,12 +175,19 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         let size = panel.frame.size
         // The material of macOS popovers, with rounded corners. `.active`: the app is never the active app,
         // and an inactive material looks flat and grey.
-        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        let background = PanelBackgroundView(frame: NSRect(origin: .zero, size: size))
         background.material = .popover
         background.blendingMode = .behindWindow
         background.state = .active
         background.maskImage = SearchPanelController.roundedMask(radius: SearchPanelController.cornerRadius)
         panel.contentView = background
+        // D12 of YAZ-2919: a drop of files closes the panel and opens the add window with them.
+        // The call runs after the drop call returns, so the panel does not hide in the middle of the drop.
+        background.fileDrop.onDrop = { [weak session] sources in
+            Task { @MainActor in session?.addFiles(sources) }
+        }
+        fieldEditor.isFieldEditor = true
+        fieldEditor.panelBackground = background
 
         let fieldTop = size.height - SearchPanelController.fieldHeight
         let glass = NSImageView(frame: NSRect(x: 16, y: fieldTop + 15, width: 22, height: 22))
@@ -267,6 +330,11 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     }
 
     // MARK: NSWindowDelegate
+
+    /// The search box uses `SearchFieldEditor`, so a file drop on it goes to the add window.
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        (client as? NSTextField) === field ? fieldEditor : nil
+    }
 
     /// A click outside, or a different window takes the keyboard: the panel closes (D7).
     /// Not for a ⌘V of Shift+Enter, and not while the right-click menu is open.
