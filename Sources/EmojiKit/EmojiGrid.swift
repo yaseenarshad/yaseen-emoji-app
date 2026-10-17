@@ -157,9 +157,10 @@ final class EmojiGridView: NSView, NSMenuDelegate {
                     let cell = NSRect(x: GridMetrics.inset + CGFloat(index - range.lowerBound) * GridMetrics.cellSize,
                                       y: top, width: GridMetrics.cellSize, height: GridMetrics.cellSize)
                     if index == session.selection { drawBlueBox(in: cell) }
+                    guard case .emoji(let emoji) = session.items[index] else { continue }
                     let textRect = NSRect(x: cell.minX, y: cell.minY + (cell.height - EmojiGridView.emojiLineHeight) / 2,
                                           width: cell.width, height: EmojiGridView.emojiLineHeight)
-                    (session.shown(session.items[index]) as NSString)
+                    (session.shown(emoji) as NSString)
                         .draw(with: textRect, options: .usesLineFragmentOrigin, attributes: EmojiGridView.emojiAttributes)
                 }
             }
@@ -229,6 +230,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
             case .addWord: selector = #selector(addWord)
             case .copyOnly: selector = #selector(copyOnly)
             case .hideFromMostUsed: selector = #selector(hideFromMostUsed)
+            default: continue
             }
             let item = NSMenuItem(title: action.title, action: selector, keyEquivalent: "")
             item.target = self
@@ -238,15 +240,15 @@ final class EmojiGridView: NSView, NSMenuDelegate {
     }
 
     @objc private func addWord() {
-        guard let emoji = session.selectedEmoji else { return }
-        session.addWord(for: emoji)
+        guard let item = session.selectedItem else { return }
+        session.addWord(for: item)
     }
 
     @objc private func copyOnly() { session.copyOnly() }
 
     @objc private func hideFromMostUsed() {
-        guard let emoji = session.selectedEmoji else { return }
-        session.hideFromMostUsed(emoji)
+        guard let item = session.selectedItem else { return }
+        session.hideFromMostUsed(item: item)
     }
 
     func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }

@@ -18,6 +18,10 @@ struct AppParts {
     var later: Later
     /// The Trash for "Move to Trash" of a GIF or meme (D13 of YAZ-2919).
     var trash: Trash
+    /// The still pictures of the tiles (D5 of YAZ-2919): `~/Library/Caches/Yaseen Emoji/thumbs` in the app.
+    var thumbnailFolder: URL
+    /// "Show in Finder" of a GIF or meme (D13 of YAZ-2919).
+    var showInFinder: (URL) -> Void
     /// Makes the search panel on the screen for the session.
     var makePanel: (PickSession) -> PickPanel
 
@@ -32,6 +36,8 @@ struct AppParts {
             access: SystemPasteAccess(),
             later: MainQueueLater(),
             trash: SystemTrash(),
+            thumbnailFolder: MediaImport.defaultThumbnailFolder,
+            showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([$0]) },
             makePanel: { SearchPanelController(session: $0) }
         )
     }
@@ -69,6 +75,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private let parts: AppParts
     private let paster: Paster
     private var panel: PickPanel?
+    /// The still pictures of the tiles, for the life of the app (D11 of YAZ-2919).
+    let thumbnails: Thumbnails
     private var settingsWindow: SettingsWindowController?
     private let log = Logger(subsystem: "com.yaseenarshad.yaseenemoji", category: "shell")
 
@@ -91,6 +99,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder,
                                trash: parts.trash)
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
+        thumbnails = Thumbnails(folder: parts.thumbnailFolder)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
                                  folders: folders)
     }
@@ -210,10 +219,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func catalogIsReady(_ catalog: [Emoji]) {
         if catalog.isEmpty { log.error("The emoji catalog is empty. emoji.json is missing or bad.") }
-        let session = PickSession(catalog: catalog, store: store, prefs: prefs, paster: paster)
+        // No KLIPY yet: subissue 4 gives `online` (D1 of YAZ-2919).
+        let session = PickSession(catalog: catalog, store: store, library: library, prefs: prefs, paster: paster,
+                                  thumbnails: thumbnails)
         let panel = parts.makePanel(session)
         session.panel = panel
         session.willOpen = { [weak self] in self?.reloadHistory() }
+        session.showInFinder = parts.showInFinder
+        // Subissue 3 opens the add window here (D12 of YAZ-2919).
+        session.onAddNew = {}
         self.session = session
         self.panel = panel
         if opensWhenReady {

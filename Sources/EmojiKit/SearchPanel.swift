@@ -82,7 +82,6 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     static let fieldHeight: CGFloat = 52
     static let gridHeight: CGFloat = 340
     static let cornerRadius: CGFloat = 14
-    static let placeholder = "Search emoji"
 
     private let session: PickSession
     private let panel: SearchPanel
@@ -128,7 +127,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 22)
-        field.placeholderString = SearchPanelController.placeholder
+        field.placeholderString = session.placeholder
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.delegate = self
@@ -190,7 +189,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
 
     func reload() {
         if field.stringValue != session.query { field.stringValue = session.query }
-        field.placeholderString = session.addingWordFor.map { "A word for \($0.text)" } ?? SearchPanelController.placeholder
+        field.placeholderString = session.placeholder
         grid.reload()
     }
 

@@ -16,8 +16,8 @@ import Testing
 
         rig.session.setQuery("ship")
         // Before the pick, 🚀 ("ship" is one of its words) is not first.
-        #expect(rig.session.items.first?.text != "🚀")
-        #expect(rig.session.lines.first == .title(PickSession.resultsTitle(rig.session.items.count)))
+        #expect(rig.session.emojis.first?.text != "🚀")
+        #expect(rig.session.lines.first == .title(PickSession.resultsTitle(rig.session.emojis.count)))
         try rig.select("🚀")
         rig.session.enter(shift: false)
 
@@ -50,7 +50,7 @@ import Testing
         rig.session.toggle()
         #expect(rig.session.query == "")
         rig.session.setQuery("ship")
-        #expect(rig.session.items.first?.text == "🚀")
+        #expect(rig.session.emojis.first?.text == "🚀")
         #expect(rig.session.selection == 0)
     }
 
@@ -95,11 +95,11 @@ import Testing
         rig.session.open()
         rig.session.setQuery("thumb")
         try rig.select("👍")
-        let before = (items: rig.session.items, selection: rig.session.selection)
+        let before = (items: rig.session.emojis, selection: rig.session.selection)
         rig.session.enter(shift: true)
         #expect(rig.session.isOpen)
         // The list does not move while the panel stays open.
-        #expect(rig.session.items == before.items && rig.session.selection == before.selection)
+        #expect(rig.session.emojis == before.items && rig.session.selection == before.selection)
         #expect(rig.session.query == "thumb")
         #expect(rig.session.selectedEmoji?.text == "👍")
         #expect(rig.panel.calls == ["show", "stepAside"])
@@ -262,7 +262,7 @@ import Testing
         #expect(session.lines.contains(.title(PickSession.mostUsedTitle)))
         for group in EmojiCatalog.groupNames { #expect(session.lines.contains(.title(group)), "\(group)") }
         #expect(session.selection == nil)
-        let place = try #require(session.items.firstIndex(of: otter))
+        let place = try #require(session.emojis.firstIndex(of: otter))
         #expect(!(session.mostUsedItems?.contains(place) ?? false))
         // "Hide from Your most used" stays only in that section.
         #expect(session.menuActions(at: place) == [.addWord, .copyOnly])
@@ -273,7 +273,7 @@ import Testing
         #expect(rig.store.you.learned["zzbet"]?[otter.key]?.count == 1)
         session.open()
         session.setQuery("zzbet")
-        #expect(session.items.first == otter && session.selection == 0)
+        #expect(session.emojis.first == otter && session.selection == 0)
     }
 
     /// The shown form (D9, D17): the default tone of Settings for an emoji that takes a tone, else the
@@ -310,28 +310,28 @@ import Testing
         rig.session.open()
         let session = rig.session
         let most = try #require(session.mostUsedItems)
-        #expect(most == 0..<36 && session.items.first == thumbs)
+        #expect(most == 0..<36 && session.emojis.first == thumbs)
         #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .hideFromMostUsed])
         #expect(session.menuActions(at: 35).last == .hideFromMostUsed)
         // The same 👍 in its group, below "Your most used".
-        let inGroup = try #require(session.items.indices.first { $0 >= 36 && session.items[$0] == thumbs })
+        let inGroup = try #require(session.emojis.indices.first { $0 >= 36 && session.emojis[$0] == thumbs })
         #expect(session.menuActions(at: inGroup) == [.addWord, .copyOnly])
-        #expect(session.menuActions(at: session.items.count).isEmpty)
+        #expect(session.menuActions(at: session.emojis.count).isEmpty)
         #expect(PickSession.MenuAction.hideFromMostUsed.title == "Hide from Your most used")
-        let before = Set(session.items[0..<36].map(\.text))
+        let before = Set(session.emojis[0..<36].map(\.text))
 
         session.hideFromMostUsed(thumbs)
         #expect(session.isOpen)
         #expect(rig.panel.calls == ["show"])
         #expect(session.mostUsedItems == 0..<36)
-        let after = Set(session.items[0..<36].map(\.text))
+        let after = Set(session.emojis[0..<36].map(\.text))
         #expect(!after.contains(thumbs.text))
         #expect(before.subtracting([thumbs.text]).isSubset(of: after) && after.subtracting(before).count == 1)
 
         // A search result has no hide item, and the search still finds 👍.
         session.setQuery("thumbs up")
         #expect(session.mostUsedItems == nil)
-        #expect(session.items.first == thumbs)
+        #expect(session.emojis.first == thumbs)
         #expect(session.menuActions(at: 0) == [.addWord, .copyOnly])
     }
 
@@ -343,7 +343,7 @@ import Testing
         rig.session.setQuery("zoomies")
         #expect(rig.session.selection == nil)
         rig.session.addWord(for: rocket)
-        #expect(rig.session.items.first?.text == "🚀")
+        #expect(rig.session.emojis.first?.text == "🚀")
 
         rig.session.escape()
         rig.session.open()
@@ -357,7 +357,7 @@ import Testing
         rig.session.setQuery("blastoff")
         rig.session.enter(shift: false)
         #expect(rig.session.isOpen)
-        #expect(rig.session.items.first?.text == "🚀")
+        #expect(rig.session.emojis.first?.text == "🚀")
         #expect(rig.store.you.added[You.key("🚀")] == ["zoomies", "blastoff"])
         // Adding a word is not a pick.
         #expect(rig.keys.sent.isEmpty && rig.clipboard.restores == 0 && rig.store.you.uses.isEmpty)
