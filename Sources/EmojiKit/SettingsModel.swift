@@ -25,6 +25,9 @@ final class SettingsModel: ObservableObject {
     static let mediaNotMovedText = "Yaseen Emoji can't move your GIFs and memes into this folder. They stay in the old folder."
     static let klipyKeyNote = "Without a key, you see only your own GIFs and memes."
     static let klipyKeyNotSavedText = "Yaseen Emoji can't keep the key in the Keychain."
+    static let klipyKeySavedNote = "Saved in this Mac's Keychain. Use Change… or Remove… to edit it."
+    static let klipyKeyEmptyText = "Paste a key first."
+    static let klipyKeyRemoveQuestion = "This Mac stops searching KLIPY. Your own GIFs and memes stay. You can paste the key again later."
     /// The Partner Panel of KLIPY, where you make a free key ("API Keys").
     static let klipyKeyURL = URL(string: "https://partner.klipy.com/")!
     /// The Accessibility pane of System Settings.
@@ -62,8 +65,10 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var mediaFolderIsSame = true
     /// The red line below the GIFs and memes folder: the folder is missing, or a move failed.
     @Published private(set) var mediaFolderProblem: String?
-    /// The text of the KLIPY key box (D14 of YAZ-2919). It holds the saved key, or what you typed.
+    /// The text of the KLIPY key box (D14 of YAZ-2919): what you typed. It never holds the saved key.
     @Published var klipyKeyText = ""
+    /// True while the box is open after "Change…". A saved key is locked until then (Yaseen, 16 Oct 2026).
+    @Published private(set) var isChangingKlipyKey = false
     /// True when this Mac's Keychain has a KLIPY key.
     @Published private(set) var hasKlipyKey = false
     /// The red line below the key box.
@@ -109,9 +114,7 @@ final class SettingsModel: ObservableObject {
         hotKey = prefs.hotKey
         pickMode = prefs.pickMode
         defaultTone = prefs.defaultTone
-        let key = keyStore.read() ?? ""
-        klipyKeyText = key
-        hasKlipyKey = !key.isEmpty
+        hasKlipyKey = !(keyStore.read() ?? "").isEmpty
         refresh()
     }
 
@@ -324,13 +327,29 @@ final class SettingsModel: ObservableObject {
 
     // MARK: The KLIPY key (D2 and D14 of YAZ-2919)
 
-    /// Enter, a click outside the box, or a close of the window: the box goes into this Mac's Keychain.
-    /// An empty box removes the key. The same key again changes nothing.
+    /// The key row is locked when a key is saved (Yaseen, 16 Oct 2026: "this is such a laxidal way to accidently edit it").
+    /// Only "Save" (or Enter in the box) writes the key. A click outside or a close of the window changes nothing.
+
+    /// "Change…": opens an empty box. The saved key stays until "Save".
+    func startChangingKlipyKey() {
+        cancelConfirm()
+        klipyKeyText = ""
+        klipyKeyProblem = nil
+        isChangingKlipyKey = true
+    }
+
+    /// "Cancel": closes the box with no change.
+    func cancelChangingKlipyKey() {
+        klipyKeyText = ""
+        klipyKeyProblem = nil
+        isChangingKlipyKey = false
+    }
+
+    /// "Save" or Enter: the box goes into this Mac's Keychain. An empty box saves nothing: "Remove…" removes a key.
     func saveKlipyKey() {
         let key = KlipyKey.clean(klipyKeyText)
-        if klipyKeyText != key { klipyKeyText = key }
-        guard key != (keyStore.read() ?? "") else {
-            klipyKeyProblem = nil
+        guard !key.isEmpty else {
+            klipyKeyProblem = SettingsModel.klipyKeyEmptyText
             return
         }
         do {
@@ -339,8 +358,24 @@ final class SettingsModel: ObservableObject {
             klipyKeyProblem = SettingsModel.klipyKeyNotSavedText
             return
         }
+        klipyKeyText = ""
         klipyKeyProblem = nil
-        hasKlipyKey = !key.isEmpty
+        isChangingKlipyKey = false
+        hasKlipyKey = true
+        onKlipyKeyChanged()
+    }
+
+    /// "Remove…", after you type "remove" (D19 of YAZ-2894).
+    func removeKlipyKey() {
+        do {
+            try keyStore.write("")
+        } catch {
+            klipyKeyProblem = SettingsModel.klipyKeyNotSavedText
+            return
+        }
+        klipyKeyProblem = nil
+        isChangingKlipyKey = false
+        hasKlipyKey = false
         onKlipyKeyChanged()
     }
 
@@ -425,8 +460,16 @@ final class SettingsModel: ObservableObject {
     enum Danger: Equatable {
         /// "Reset to Mac Default Folder…", "Forget learned words…", "Reset to Same Folder…" (D14 of YAZ-2919).
         case reset, forget, resetMedia
+        /// "Remove…" of the KLIPY key.
+        case removeKey
         /// The word to type.
-        var word: String { self == .forget ? "forget" : "reset" }
+        var word: String {
+            switch self {
+            case .forget: return "forget"
+            case .removeKey: return "remove"
+            case .reset, .resetMedia: return "reset"
+            }
+        }
     }
 
     var isConfirmingForget: Bool { confirming == .forget }
@@ -454,6 +497,7 @@ final class SettingsModel: ObservableObject {
         case .reset: useThisMacOnly()
         case .forget: forgetWords()
         case .resetMedia: useSameMediaFolder()
+        case .removeKey: removeKlipyKey()
         }
     }
 

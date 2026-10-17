@@ -119,7 +119,8 @@ import Testing
         #expect(exists(other.appendingPathComponent(file)) && !exists(sync.appendingPathComponent(file)))
     }
 
-    /// D14: the KLIPY key box saves into the key store (the Keychain in the app), and an empty box removes the key.
+    /// D14: "Save" puts the key into the key store (the Keychain in the app). A saved key is locked: only "Change…" then
+    /// "Save" replaces it, and only "Remove…" with the typed word "remove" deletes it. An empty box saves nothing.
     /// The GIFs and Memes tabs use the new key at once. "Get a free key" opens the Partner Panel of KLIPY.
     @Test func theKeyRowSavesAndRemovesTheKey() throws {
         let rig = try PickRig()
@@ -130,18 +131,41 @@ import Testing
         #expect(!settings.hasKlipyKey && settings.klipyKeyText.isEmpty && !app.klipy.isOn)
         #expect(SettingsModel.klipyKeyNote == "Without a key, you see only your own GIFs and memes.")
 
-        settings.klipyKeyText = "  abc123\n"
-        settings.saveKlipyKey()
-        #expect(rig.klipyKey.read() == "abc123" && settings.klipyKeyText == "abc123")
-        #expect(settings.hasKlipyKey && settings.klipyKeyProblem == nil && app.klipy.isOn)
-
-        // The next start shows the saved key in the box (hidden by the box).
-        let again = AppController(hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), parts: rig.parts(catalog: []))
-        #expect(again.settings.klipyKeyText == "abc123" && again.settings.hasKlipyKey && again.klipy.isOn)
-
+        // An empty box saves nothing and says why.
         settings.klipyKeyText = " "
         settings.saveKlipyKey()
-        #expect(rig.klipyKey.read() == nil && !settings.hasKlipyKey && !app.klipy.isOn)
+        #expect(rig.klipyKey.read() == nil && settings.klipyKeyProblem == SettingsModel.klipyKeyEmptyText)
+
+        settings.klipyKeyText = "  abc123\n"
+        settings.saveKlipyKey()
+        #expect(rig.klipyKey.read() == "abc123" && settings.klipyKeyText.isEmpty)
+        #expect(settings.hasKlipyKey && !settings.isChangingKlipyKey && settings.klipyKeyProblem == nil && app.klipy.isOn)
+
+        // The next start: the key is saved, and the box never holds it.
+        let again = AppController(hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), parts: rig.parts(catalog: []))
+        #expect(again.settings.klipyKeyText.isEmpty && again.settings.hasKlipyKey && again.klipy.isOn)
+
+        // "Change…" then "Cancel": no change. "Change…" with an empty box and "Save": no change.
+        settings.startChangingKlipyKey()
+        #expect(settings.isChangingKlipyKey && settings.klipyKeyText.isEmpty)
+        settings.klipyKeyText = "half typed"
+        settings.cancelChangingKlipyKey()
+        #expect(rig.klipyKey.read() == "abc123" && !settings.isChangingKlipyKey && settings.klipyKeyText.isEmpty)
+        settings.startChangingKlipyKey()
+        settings.saveKlipyKey()
+        #expect(rig.klipyKey.read() == "abc123" && settings.isChangingKlipyKey)
+        settings.klipyKeyText = "def456"
+        settings.saveKlipyKey()
+        #expect(rig.klipyKey.read() == "def456" && !settings.isChangingKlipyKey)
+
+        // "Remove…" works only after you type "remove".
+        settings.ask(.removeKey)
+        settings.typedConfirmation = "reset"
+        settings.confirm()
+        #expect(rig.klipyKey.read() == "def456" && settings.confirming == .removeKey)
+        settings.typedConfirmation = "Remove "
+        settings.confirm()
+        #expect(rig.klipyKey.read() == nil && !settings.hasKlipyKey && !app.klipy.isOn && settings.confirming == nil)
 
         settings.openKlipyKeyPage()
         #expect(opened == [URL(string: "https://partner.klipy.com/")!])

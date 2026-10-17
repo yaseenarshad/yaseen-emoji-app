@@ -8,8 +8,6 @@ import SwiftUI
 /// Each change saves at once.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    /// True while the KLIPY key box has the keyboard. A click outside saves the key.
-    @FocusState private var keyBoxHasFocus: Bool
 
     var body: some View {
         Form {
@@ -201,24 +199,43 @@ struct SettingsView: View {
         }
     }
 
-    /// D2 and D14 of YAZ-2919: the KLIPY key in a box that hides it. Enter or a click outside saves it into the Keychain.
+    /// D2 and D14 of YAZ-2919: the KLIPY key. A saved key is locked: "Change…" opens an empty box with
+    /// "Save" and "Cancel", and "Remove…" asks you to type "remove". Nothing saves on a click outside.
     private var klipyKeyRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             LabeledContent("KLIPY key") {
-                HStack {
-                    SecureField("Paste your KLIPY key", text: $model.klipyKeyText)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($keyBoxHasFocus)
-                        .onSubmit { model.saveKlipyKey() }
-                        .frame(maxWidth: 200)
-                    Button("Get a free key") { model.openKlipyKeyPage() }
-                        .help(SettingsModel.klipyKeyURL.absoluteString)
+                if model.hasKlipyKey && !model.isChangingKlipyKey {
+                    HStack {
+                        Label("Saved", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        if model.confirming != .removeKey {
+                            Button("Change…") { model.startChangingKlipyKey() }
+                            Button("Remove…") { model.ask(.removeKey) }
+                        }
+                    }
+                } else {
+                    HStack {
+                        // An empty title: in a Form, the title of a field shows as a second label.
+                        SecureField("", text: $model.klipyKeyText, prompt: Text("Paste your KLIPY key"))
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { model.saveKlipyKey() }
+                            .frame(maxWidth: 180)
+                        Button("Save") { model.saveKlipyKey() }
+                        if model.isChangingKlipyKey {
+                            Button("Cancel") { model.cancelChangingKlipyKey() }
+                        } else {
+                            Button("Get a free key") { model.openKlipyKeyPage() }
+                                .help(SettingsModel.klipyKeyURL.absoluteString)
+                        }
+                    }
                 }
             }
-            .onChange(of: keyBoxHasFocus) { _, hasFocus in
-                if !hasFocus { model.saveKlipyKey() }
+            if model.confirming == .removeKey {
+                confirmBox(SettingsModel.klipyKeyRemoveQuestion, button: "Remove")
             }
-            Text(SettingsModel.klipyKeyNote).font(.callout).foregroundStyle(.secondary)
+            Text(model.hasKlipyKey ? SettingsModel.klipyKeySavedNote : SettingsModel.klipyKeyNote)
+                .font(.callout).foregroundStyle(.secondary)
             if let problem = model.klipyKeyProblem {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
@@ -404,8 +421,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        // A key that you typed and did not save yet goes into the Keychain.
-        model.saveKlipyKey()
+        // A key that you typed and did not save is dropped. Only "Save" writes the key.
+        model.cancelChangingKlipyKey()
         model.cancelRecording()
         model.cancelConfirm()
         stopKeyMonitor()
