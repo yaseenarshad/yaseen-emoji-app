@@ -54,6 +54,8 @@ final class MemePreviewController {
     static let inset: CGFloat = 12
     /// The long side of a picture in memory, in pixels: enough for 360 points on a Retina screen.
     nonisolated static let largestPixels = 1_200
+    /// The last pictures in memory. One is up to about 5.8 MB decoded, so 8 are at most about 46 MB.
+    static let picturesKept = 8
 
     private let window: PreviewPanel
     private let imageView = NSImageView()
@@ -69,7 +71,7 @@ final class MemePreviewController {
 
     init(online: OnlineResults?, mask: NSImage) {
         self.online = online
-        pictures.countLimit = 20
+        pictures.countLimit = MemePreviewController.picturesKept
         window = PreviewPanel(contentRect: NSRect(x: 0, y: 0, width: MemePreview.width, height: 300),
                               styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         window.ignoresMouseEvents = true
@@ -168,7 +170,7 @@ final class MemePreviewController {
         }
     }
 
-    /// Loads the picture off the main thread, at most `largestPixels` on the long side, and keeps the last 20.
+    /// Loads the picture off the main thread, at most `largestPixels` on the long side, and keeps the last 8.
     private func showPicture(at url: URL, for item: PickItem) {
         let key = url.absoluteString as NSString
         if let image = pictures.object(forKey: key) {
