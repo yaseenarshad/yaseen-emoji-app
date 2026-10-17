@@ -203,8 +203,10 @@ final class AddModel: ObservableObject {
     private let prepare: (AddSource) async throws -> PreparedFile
     private let readText: (Data) async -> [String]
     private var nextID = 0
-    /// The work that runs: the prepares, the text reads and the adds. A test waits for it with `settle()`.
-    private var work: [Task<Void, Never>] = []
+    /// The work that runs: the prepares, the text reads and the adds. A task leaves the list when it ends.
+    /// A test waits for it with `settle()`.
+    private var work: [Int: Task<Void, Never>] = [:]
+    private var nextWork = 0
 
     init(library: LibraryStore,
          prepare: @escaping (AddSource) async throws -> PreparedFile = AddModel.prepare,
@@ -233,7 +235,7 @@ final class AddModel: ObservableObject {
             let id = nextID
             nextID += 1
             rows.append(AddRow(id: id, source: source))
-            work.append(Task { [weak self] in await self?.prepareRow(id, source) })
+            track { [weak self] in await self?.prepareRow(id, source) }
         }
     }
 
@@ -285,7 +287,7 @@ final class AddModel: ObservableObject {
         guard let row = row(id), row.state == .ready, row.existing == nil else { return }
         change(id) { $0.kind = kind }
         if kind == .meme, !row.wasRead, let bytes = row.file?.bytes {
-            work.append(Task { [weak self] in await self?.read(id, bytes) })
+            track { [weak self] in await self?.read(id, bytes) }
         }
     }
 
@@ -328,7 +330,7 @@ final class AddModel: ObservableObject {
         // `LibraryStore` is not safe for two threads, and the panel reads it on the main thread.
         // Thus only the write of the file runs off the main thread.
         let target = library.place(of: file, as: kind)
-        work.append(Task { [weak self] in
+        track { [weak self] in
             do {
                 if let target {
                     try await Task.detached(priority: .userInitiated) {
@@ -339,7 +341,7 @@ final class AddModel: ObservableObject {
             } catch {
                 self?.failAdd(id, error)
             }
-        })
+        }
     }
 
     private func finishAdd(_ id: Int, _ file: PreparedFile, kind: ItemKind, words: [String], title: String) {
@@ -419,12 +421,20 @@ final class AddModel: ObservableObject {
         body(&rows[place])
     }
 
-    /// Waits for the work that runs, also the work that it starts. For the tests.
+    /// Runs `body` as one task of the work. The task leaves the list when it ends, so the list does not grow.
+    private func track(_ body: @escaping @MainActor () async -> Void) {
+        nextWork += 1
+        let id = nextWork
+        work[id] = Task { [weak self] in
+            await body()
+            self?.work[id] = nil
+        }
+    }
+
+    /// Waits for the work that runs, also the work that it starts, until the list is empty. For the tests.
     func settle() async {
         while !work.isEmpty {
-            let running = work
-            work = []
-            for task in running { await task.value }
+            for task in Array(work.values) { await task.value }
         }
     }
 
