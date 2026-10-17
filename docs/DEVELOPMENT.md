@@ -70,6 +70,15 @@ The history and the synced settings are in the preferences folder. The default i
 - **The files:** `gifs/<id>.<ext>` and `memes/<id>.<ext>` in the GIFs and memes folder. The pref `yaseenEmoji.mediaFolder` stays on each Mac. "" is the preferences folder. The `id` is the first 16 hex characters of the SHA-256 of the file, so two Macs that add the same GIF write the same file.
 - **The counts and the learned words** stay in `you-<Mac name>.json`, with the keys `gif:<id>`, `meme:<id>` and `klipy:<klipyID>`.
 - **The still pictures:** `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png`, 290 × 290 pixels. They are not synced. The panel makes a missing one when its tile shows, and deletes it when the item is removed, on this Mac or on a different Mac.
+- **Settings → "GIFs and memes":** "Set GIFs and memes folder…" and "Reset to Same Folder…" (type "reset") call `LibraryStore.useMediaFolder(_:)`. "Set preferences folder…" and "Reset to Mac Default Folder…" also move `library-<Mac name>.json` (`LibraryStore.move(to:)`), and `gifs/` and `memes/` when the GIFs and memes folder is the preferences folder. If that file move fails, the files stay, and the GIFs and memes folder becomes the old folder.
+
+### KLIPY (D1, D2, D7 of YAZ-2919)
+
+- **The key:** Settings → "KLIPY key". Enter, a click outside the box, or a close of the window saves it into this Mac's Keychain (service `com.yaseenarshad.yaseenemoji`, account `klipy`). An empty box removes it. ⌘V works in the box: the settings window gives the edit keys to the box, because the app has no main menu.
+- **The search:** 350 ms after the last key, 24 a page, the next page near the end of the grid, at most 96, in KLIPY's order, in "From KLIPY" below "Yours". The last 8 searches stay in memory. A failed search gives one grey line, and the next open tries again.
+- **Saved and learned items:** "Yours" shows the saved KLIPY items and the KLIPY items that you picked for this text. The app gets the unknown slugs of one grid in one `items` call for each kind, and keeps at most 500 items in memory. An item that KLIPY deleted drops with no line.
+- **The paste:** the paste file downloads when the blue box sits on a KLIPY tile for 300 ms. Enter waits up to 3 s with "Getting the GIF…". The file goes into `~/Library/Caches/Yaseen Emoji/paste/<uuid>/`. The app deletes the files older than 5 minutes at each open of the panel and each minute, and all of them at quit.
+- **The pictures** of KLIPY tiles stay in memory only (120 stills, 4 moving pictures).
 
 ### The add window (D12 of YAZ-2919)
 
@@ -121,6 +130,7 @@ The parts of `EmojiKit`:
 - `AddWindow.swift`: the add window (D12 of YAZ-2919). `AddModel` holds the rows and their rules, with no view. `PasteReader` finds the best form on the clipboard through `PasteboardSource`, a protocol, so a test gives a fake clipboard. `FileDrop` reads a drop. `AddWindowController` is the non-activating panel with the SwiftUI view.
 - `PickSession`: the rules of the panel with no window: the tab (Emoji, GIFs, Memes; each open starts on Emoji), the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`, `perform(_:)`) and "Hide from Your most used". One grid item is a `PickItem`: an emoji, your own GIF or meme, or a KLIPY item. Its `key` is the key in `you-<Mac>.json`. The GIFs and Memes tabs use the same `Search` as the emojis (`Searchable`, `TileEntry`).
 - `OnlineResults.swift`: the place of KLIPY in the GIFs and Memes tabs. With no `OnlineResults`, the tabs show only your own files and no "From KLIPY" section.
+- `KlipyResults.swift`: the real `OnlineResults`: the search after the pause, the pages, the lookup of saved and learned items by slug, the 300 ms prefetch, the 3 s wait of a paste file, and the tile pictures. The network, the download, the pause and the clock are parameters.
 - `Paster`: a pick. It saves the clipboard, writes the emoji or the file, posts ⌘V, and puts the old clipboard back after 0.3 s (a file: 1.0 s). A file is one clipboard item (`ClipboardContents.fileItem`): the file URL, the file's own bytes in its own type, and the transient mark for a paste. No TIFF. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
 - `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`: Tab and Shift+Tab go round the tabs, ⌘1 to ⌘3 go to a tab.
 - `EmojiGrid.swift`: one view that draws only the lines on the screen (9 emojis or 3 tiles in a row, `GridMetrics`), the right-click menu, and the drag of the panel (a move of more than 4 points, `EmojiGridView.isDrag(from:to:)`). Only the tile with the blue box moves: one `NSImageView` over that tile.
@@ -129,7 +139,7 @@ The parts of `EmojiKit`:
 - `SettingsModel` and `SettingsWindow.swift`: the rules of Settings with no window, and the SwiftUI form in a non-activating panel.
 - `HotKey.swift`: the global hotkey (Carbon `RegisterEventHotKey`, no permission). `HotKeyRegistering` is a protocol, so a test uses a fake.
 - `LoginItem.swift`: "Start at login" (`SMAppService`). `LoginItem` is a protocol, so a test uses a fake.
-- `OnlineLibrary.swift`: KLIPY (D1 of YAZ-2919). `OnlineItem`, the `OnlineLibrary` protocol, and `KlipyLibrary` (`URLSession`, a time-out of 5 s, 24 results a page, at most 96, KLIPY's order). The KLIPY ID of an item is its slug, because `gifs/items` takes slugs. `SearchDebouncer` starts a search 350 ms after the last change and cancels the old one. `PasteFiles` downloads the paste file to `<cache>/paste/<uuid>/<id>.<ext>` and deletes it after 5 minutes and at quit.
+- `OnlineLibrary.swift`: KLIPY (D1 of YAZ-2919). `OnlineItem` (its `kind` is an `ItemKind`), the `OnlineLibrary` protocol, and `KlipyLibrary` (`URLSession`, a time-out of 5 s, 24 results a page, at most 96, KLIPY's order). The KLIPY ID of an item is its slug, because `gifs/items` takes slugs. `SearchDebouncer` starts a search 350 ms after the last change and cancels the old one. `PasteFiles` downloads the paste file to `<cache>/paste/<uuid>/<id>.<ext>` and deletes it after 5 minutes and at quit.
 - `KeyStore.swift`: the KLIPY key (D2 of YAZ-2919). `KeyStore` is a protocol, so a test uses a fake. `KeychainKeyStore` keeps a generic password, service `com.yaseenarshad.yaseenemoji`, account `klipy`. An empty text removes it.
 
 ## Test
@@ -140,7 +150,7 @@ The parts of `EmojiKit`:
 - A test never registers a real hotkey or a real login item. It uses a fake one.
 - A test never reads or changes the real clipboard. It uses a fake one. The paste of the add window reads a `ClipboardContents` in the test.
 - A test never touches the real Trash. It uses `FakeTrash` in a temp folder. The videos and pictures of the import tests are made in the test.
-- A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`.
+- A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`. `KlipyRig` puts `KlipyResults` on a stub network with a `ManualSleep` for the pause and a `FakeLater` for the prefetch and the 3 s wait.
 - A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
 - Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search of the emojis and of 2,000 made-up GIFs, and the change of a 5 s MP4 to a GIF. A `MEMORY` line gives the memory of 120 still pictures. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
 - The window parts (the panel, the grid, the menu on the screen) have no test. Check them on the real screen.
