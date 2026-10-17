@@ -141,9 +141,9 @@ import Testing
         session.select(tab: .gifs)
 
         // Your GIF in "Your most used", and the same GIF in "Your GIFs".
-        #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .hideFromMostUsed, .showInFinder, .addNew])
+        #expect(session.menuActions(at: 0) == [.addWord, .rename, .copyOnly, .hideFromMostUsed, .showInFinder, .addNew])
         let inList = try #require(session.items.indices.first { $0 > 0 && session.items[$0] == .own(gif) })
-        #expect(session.menuActions(at: inList) == [.addWord, .copyOnly, .showInFinder, .addNew])
+        #expect(session.menuActions(at: inList) == [.addWord, .rename, .copyOnly, .showInFinder, .addNew])
         // The saved KLIPY item shows in "Your GIFs".
         let savedPlace = try rig.place(of: "klipy:saved-1")
         #expect(session.menuActions(at: savedPlace) == [.addWord, .copyOnly, .removeFromYours(.gif), .addNew])
@@ -259,7 +259,8 @@ import Testing
         #expect(rig.store.you.added.isEmpty && rig.store.you.uses.isEmpty)
     }
 
-    /// The emoji search budget stays 2 ms (D5). The same search over 2,000 made-up items, with 3 words each.
+    /// The emoji search budget stays 2 ms (D5). The same search over 2,000 made-up items, with 3 words each,
+    /// and a title of 2 words on every second item (D15 of YAZ-2919).
     /// The number goes into the Result comment. The bound here is generous, so a slow CI computer does not fail.
     @Test func theTimeOfASearchOverTwoThousandItems() {
         let vocabulary = ["dance", "party", "happy", "sad", "cat", "dog", "lol", "fine", "this", "is", "wow", "omg",
@@ -274,7 +275,8 @@ import Testing
             let words = (0..<3).map { _ in vocabulary[next() % vocabulary.count] + (next() % 3 == 0 ? "\(next() % 50)" : "") }
             let item = Item(id: String(format: "%016x", place), kind: .gif, file: "gifs/\(place).gif", klipyID: nil,
                             words: words, added: Date(timeIntervalSince1970: Double(place)), changed: Date())
-            return TileEntry(item: .own(item), words: words, order: place)
+            let title = place % 2 == 0 ? "\(vocabulary[next() % vocabulary.count]) \(vocabulary[next() % vocabulary.count])" : ""
+            return TileEntry(item: .own(item), words: words, title: title, order: place)
         }
         var you = You()
         for entry in entries.prefix(300) { you.uses[entry.key] = You.Use(count: entry.order % 20 + 1, last: Date()) }

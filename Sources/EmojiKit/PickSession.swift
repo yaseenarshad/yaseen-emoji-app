@@ -61,23 +61,27 @@ enum PickItem: Equatable {
     }
 }
 
-/// The search entry of one GIF or meme (D11 of YAZ-2919). An item has no name. Its words are the words of the item,
-/// and a word with spaces also gives its single words. `order` is the place in the list, newest first.
+/// The search entry of one GIF or meme (D11 of YAZ-2919). Its name is its title (D15): the full title gives `isName`,
+/// as the name of an emoji. Its words are the words of the item and of the title, and a word with spaces also gives
+/// its single words. `order` is the place in the list, newest first.
 /// A class: the search copies each entry, and a copy of a reference is cheaper than a copy of the item.
 final class TileEntry: Searchable {
     let item: PickItem
     let key: String
-    var name: String { "" }
-    let nameBytes: [UInt8] = []
+    /// The title, normalized, or "".
+    let name: String
+    let nameBytes: [UInt8]
     let wordBytes: [[UInt8]]
     let order: Int
 
-    init(item: PickItem, words: [String], order: Int) {
+    init(item: PickItem, words: [String], title: String = "", order: Int) {
         self.item = item
         key = item.key
         self.order = order
+        name = Search.normalize(title)
+        nameBytes = Array(name.utf8)
         var all: [String] = []
-        for word in words {
+        for word in words + (name.isEmpty ? [] : [name]) {
             let clean = Search.normalize(word)
             for part in [clean] + clean.split(separator: " ").map(String.init) where !part.isEmpty && !all.contains(part) {
                 all.append(part)
@@ -138,6 +142,8 @@ final class PickSession {
     /// One item of the right-click menu. The grid makes the `NSMenu` from these, so a test checks the items.
     enum MenuAction: Equatable {
         case addWord, copyOnly, hideFromMostUsed
+        /// "Rename…" of your own GIF or meme (D15 of YAZ-2919).
+        case rename
         /// Your own GIF or meme (D13 of YAZ-2919).
         case showInFinder
         /// A KLIPY item (D7, D13 of YAZ-2919): "Save to your GIFs" and "Remove from your GIFs" (or memes).
@@ -148,6 +154,7 @@ final class PickSession {
         var title: String {
             switch self {
             case .addWord: return "Add a word…"
+            case .rename: return "Rename…"
             case .copyOnly: return "Copy only"
             case .hideFromMostUsed: return "Hide from Your most used"
             case .showInFinder: return "Show in Finder"
@@ -180,8 +187,27 @@ final class PickSession {
     private(set) var selection: Int? {
         didSet { online?.selectionChanged(to: selectedOnlineItem) }
     }
+    /// What the search box asks for, while the grid shows only the line of the question: a word for "Add a word…"
+    /// (with an empty search, D4), or a title for "Rename…" (D15 of YAZ-2919). The tabs and the arrows wait.
+    enum Question: Equatable {
+        case word(PickItem)
+        case title(PickItem)
+
+        var item: PickItem {
+            switch self {
+            case .word(let item), .title(let item): return item
+            }
+        }
+    }
+
+    /// The question of the search box, or nil.
+    private(set) var question: Question?
+
     /// The item that waits for a word from "Add a word…" (with an empty search).
-    private(set) var addingWordFor: PickItem?
+    var addingWordFor: PickItem? {
+        if case .word(let item) = question { return item }
+        return nil
+    }
     /// The KLIPY item of a pick that waits for its paste file (up to 3 s, D6 of YAZ-2919).
     private(set) var waitingFor: PickItem?
     /// The grey line at the top of the GIFs and Memes tabs: "Getting the GIF…" or "Can't get this GIF from KLIPY.".
@@ -247,7 +273,7 @@ final class PickSession {
         isOpen = true
         tab = .emoji
         query = ""
-        addingWordFor = nil
+        question = nil
         stopWaiting()
         willOpen()
         online?.refresh()
@@ -264,7 +290,7 @@ final class PickSession {
     func close() {
         guard isOpen else { return }
         isOpen = false
-        addingWordFor = nil
+        question = nil
         stopWaiting()
         online?.stop()
         panel?.hide()
@@ -282,7 +308,7 @@ final class PickSession {
     /// ⌘1, ⌘2, ⌘3 and a click on a tab. The search text stays, and the new tab searches it.
     /// While "Add a word…" waits, the tab does not change: the search box holds the new word.
     func select(tab new: Tab) {
-        guard addingWordFor == nil, new != tab else { return }
+        guard question == nil, new != tab else { return }
         tab = new
         stopWaiting()
         rebuild()
@@ -291,7 +317,11 @@ final class PickSession {
 
     /// The text in the empty search box (D10 and its update on YAZ-2919).
     var placeholder: String {
-        if let item = addingWordFor { return "A word for \(PickSession.name(of: item))" }
+        switch question {
+        case .word(let item): return "A word for \(PickSession.name(of: item))"
+        case .title(let item): return "A title for \"\(PickSession.shortName(of: item))\""
+        case nil: break
+        }
         switch tab {
         case .emoji: return "Search emoji"
         case .gifs: return klipy(.gif)?.isOn == true ? "Search KLIPY" : "Search your GIFs"
@@ -309,7 +339,7 @@ final class PickSession {
     /// A KLIPY switch changed: the tabs use it at once. The saved and learned KLIPY items go, or come back.
     func klipySwitchChanged() {
         tileEntries = [:]
-        guard isOpen, tab != .emoji, addingWordFor == nil else { return }
+        guard isOpen, tab != .emoji, question == nil else { return }
         stopWaiting()
         rebuild(keeping: selectedItem)
         panel?.reload()
@@ -322,26 +352,26 @@ final class PickSession {
         guard text != query else { return }
         query = text
         // The word for "Add a word…" is not a search.
-        guard addingWordFor == nil else { return }
+        guard question == nil else { return }
         stopWaiting()
         rebuild()
         panel?.reload()
     }
 
     /// Enter picks and closes. Shift+Enter picks and stays open (D8).
-    /// While "Add a word…" waits, Enter adds the word.
+    /// While "Add a word…" waits, Enter adds the word. While "Rename…" waits, Enter saves the title.
     func enter(shift: Bool) {
-        if addingWordFor != nil {
-            finishAddingWord()
+        if question != nil {
+            finishQuestion()
         } else {
             pick(stayOpen: shift)
         }
     }
 
-    /// Esc stops "Add a word…". Else it closes the panel with no paste (D8).
+    /// Esc stops "Add a word…" or "Rename…". Else it closes the panel with no paste (D8).
     func escape() {
-        if addingWordFor != nil {
-            stopAddingWord()
+        if question != nil {
+            stopQuestion()
         } else {
             close()
         }
@@ -350,7 +380,7 @@ final class PickSession {
     /// The arrow keys. Left and Right go along the order of the grid. Up and Down keep the column.
     /// At the first or the last item the blue box stays. With no blue box, each arrow puts it on the first item.
     func move(_ direction: Direction) {
-        guard addingWordFor == nil, !items.isEmpty else { return }
+        guard question == nil, !items.isEmpty else { return }
         guard let current = selection else {
             select(0)
             return
@@ -388,7 +418,7 @@ final class PickSession {
 
     /// The grid is near its end, or the blue box is in the last row: the next page of "From KLIPY" (D11 of YAZ-2919).
     func reachedEnd() {
-        guard isOpen, let kind = tab.kind, addingWordFor == nil else { return }
+        guard isOpen, let kind = tab.kind, question == nil else { return }
         let text = Search.normalize(query)
         guard !text.isEmpty else { return }
         klipy(kind)?.loadMore(for: text, kind: kind)
@@ -540,8 +570,9 @@ final class PickSession {
     /// The items for the grid item at `index` (D13 of YAZ-2919). "Hide from Your most used" shows only
     /// in the "Your most used" section. No tone forms (D17).
     /// * An emoji: "Add a word…", "Copy only".
-    /// * Your own GIF or meme: "Add a word…", "Copy only", "Show in Finder", "Add a GIF or meme…". No "Move to Trash":
-    ///   you delete the file in Finder (D13 update on YAZ-2926).
+    /// * Your own GIF or meme: "Add a word…", "Rename…" (D15), "Copy only", "Show in Finder", "Add a GIF or meme…".
+    ///   No "Move to Trash": you delete the file in Finder (D13 update on YAZ-2926).
+    ///   A KLIPY item has no "Rename…": it keeps KLIPY's title.
     /// * A saved KLIPY item: "Add a word…", "Copy only", "Remove from your GIFs", "Add a GIF or meme…".
     /// * A KLIPY item that is not saved: "Save to your GIFs", "Copy only", "Add a GIF or meme…". In "Your most used"
     ///   (a KLIPY item that you picked) also "Hide from Your most used": D15 applies to each item of that section.
@@ -552,7 +583,7 @@ final class PickSession {
         case .emoji:
             return [.addWord, .copyOnly] + hide
         case .own:
-            return [.addWord, .copyOnly] + hide + [.showInFinder, .addNew]
+            return [.addWord, .rename, .copyOnly] + hide + [.showInFinder, .addNew]
         case .online(let item):
             if isSaved(item) { return [.addWord, .copyOnly] + hide + [.removeFromYours(item.kind), .addNew] }
             return [.saveToYours(item.kind), .copyOnly] + hide + [.addNew]
@@ -570,6 +601,7 @@ final class PickSession {
         guard let item = selectedItem else { return }
         switch action {
         case .addWord: addWord(for: item)
+        case .rename: rename(item)
         case .copyOnly: copyOnly()
         case .hideFromMostUsed: hideFromMostUsed(item: item)
         case .showInFinder: showInFinder(item)
@@ -644,7 +676,7 @@ final class PickSession {
     /// New KLIPY results or items: the grid shows them, with the blue box on the same item and the same scroll.
     private func onlineChanged() {
         tileEntries = [:]
-        guard isOpen, tab != .emoji, addingWordFor == nil else { return }
+        guard isOpen, tab != .emoji, question == nil else { return }
         rebuild(keeping: selectedItem)
         panel?.update()
     }
@@ -679,13 +711,18 @@ final class PickSession {
             rebuild(keeping: item)
             panel?.reload()
         } else {
-            addingWordFor = item
-            lines = [.title(PickSession.addingWordText(item))]
-            items = []
-            mostUsedItems = nil
-            selection = nil
-            panel?.reload()
+            ask(.word(item), line: PickSession.addingWordText(item))
         }
+    }
+
+    /// The grid shows only the line of the question, and the search box takes the answer.
+    private func ask(_ new: Question, line: String) {
+        question = new
+        lines = [.title(line)]
+        items = []
+        mostUsedItems = nil
+        selection = nil
+        panel?.reload()
     }
 
     private func add(_ word: String, to item: PickItem) {
@@ -702,22 +739,61 @@ final class PickSession {
         }
     }
 
-    /// Enter while "Add a word…" waits. An empty word adds nothing.
-    private func finishAddingWord() {
-        guard let item = addingWordFor else { return }
-        let word = query
-        addingWordFor = nil
-        add(word, to: item)
-        // The search box shows the word, so the item shows as a result at once.
-        rebuild(keeping: item)
+    /// Enter while "Add a word…" or "Rename…" waits. An empty word adds nothing. An empty title clears the title.
+    private func finishQuestion() {
+        guard let question else { return }
+        let text = query
+        self.question = nil
+        switch question {
+        case .word(let item):
+            add(text, to: item)
+        case .title(let item):
+            guard case .own(let own) = item else { break }
+            library.setTitle(text, of: own.id)
+            tileEntries = [:]
+            query = Item.cleanTitle(text)
+        }
+        // The search box shows the word or the title, so the item shows as a result at once.
+        rebuild(keeping: question.item)
         panel?.reload()
     }
 
-    private func stopAddingWord() {
-        addingWordFor = nil
+    private func stopQuestion() {
+        question = nil
         query = ""
         rebuild()
         panel?.reload()
+    }
+
+    // MARK: Titles (D15 of YAZ-2919)
+
+    /// The text of the one line while "Rename…" waits.
+    static func renameText(_ item: PickItem) -> String {
+        "Type a title for \"\(shortName(of: item))\". Enter saves. Esc stops."
+    }
+
+    /// The text below a tile: the title, else the first 3 words of the item. A KLIPY tile shows KLIPY's title.
+    /// An emoji has none.
+    static func label(of item: PickItem) -> String {
+        switch item {
+        case .emoji: return ""
+        case .own(let own): return own.title.isEmpty ? own.words.prefix(3).joined(separator: " ") : own.title
+        case .online(let online): return online.title
+        }
+    }
+
+    /// The name of an item in a question: the text of its tile, else "this GIF" or "this meme".
+    static func shortName(of item: PickItem) -> String {
+        let label = label(of: item)
+        return label.isEmpty ? name(of: item) : label
+    }
+
+    /// The right-click "Rename…" of your own GIF or meme. The search box asks for the title, and starts with the
+    /// title that the item has. The file keeps its name (D4).
+    func rename(_ item: PickItem) {
+        guard case .own(let own) = item else { return }
+        query = library.item(own.id)?.title ?? own.title
+        ask(.title(item), line: PickSession.renameText(item))
     }
 
     // MARK: The lines of the grid (D7; D11 of YAZ-2919)
@@ -870,15 +946,19 @@ final class PickSession {
         var entries: [TileEntry] = []
         for item in library.items(kind) {
             let pick: PickItem
+            let title: String
             if item.file != nil {
                 guard !library.missing.contains(item.id) else { continue }
                 pick = .own(item)
+                title = item.title
             } else if let slug = item.klipyID, let found = klipy(kind)?.item(slug, kind: kind) {
+                // A saved KLIPY item keeps KLIPY's title (D15 of YAZ-2919).
                 pick = .online(found)
+                title = found.title
             } else {
                 continue
             }
-            entries.append(TileEntry(item: pick, words: item.words, order: entries.count))
+            entries.append(TileEntry(item: pick, words: item.words, title: title, order: entries.count))
         }
         tileEntries[kind] = entries
         return entries
@@ -892,7 +972,7 @@ final class PickSession {
         var entries: [TileEntry] = []
         for key in keys.filter({ $0.hasPrefix("klipy:") }).sorted() {
             guard let item = online.item(String(key.dropFirst("klipy:".count)), kind: kind), !isSaved(item) else { continue }
-            entries.append(TileEntry(item: .online(item), words: [], order: start + entries.count))
+            entries.append(TileEntry(item: .online(item), words: [], title: item.title, order: start + entries.count))
         }
         return entries
     }
