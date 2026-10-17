@@ -675,21 +675,14 @@ final class AddPanel: NSPanel {
         guard let combo = HotKeyCombo(keyDown: event) else { return super.performKeyEquivalent(with: event) }
         let command = NSEvent.ModifierFlags.command
         switch (Int(combo.keyCode), combo.modifiers) {
-        case (kVK_ANSI_V, command): return onPaste() || send(#selector(NSText.paste(_:)))
+        case (kVK_ANSI_V, command):
+            return onPaste() || EditKeys.send(combo, in: self) == true
         case (kVK_ANSI_W, command):
             performClose(nil)
             return true
-        case (kVK_ANSI_C, command): return send(#selector(NSText.copy(_:)))
-        case (kVK_ANSI_X, command): return send(#selector(NSText.cut(_:)))
-        case (kVK_ANSI_A, command): return send(#selector(NSText.selectAll(_:)))
-        case (kVK_ANSI_Z, command): return send(Selector(("undo:")))
-        case (kVK_ANSI_Z, [.command, .shift]): return send(Selector(("redo:")))
-        default: return super.performKeyEquivalent(with: event)
+        default:
+            return EditKeys.send(combo, in: self) ?? super.performKeyEquivalent(with: event)
         }
-    }
-
-    private func send(_ action: Selector) -> Bool {
-        firstResponder?.tryToPerform(action, with: self) ?? false
     }
 }
 

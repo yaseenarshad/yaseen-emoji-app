@@ -120,4 +120,16 @@ import Testing
         #expect(HotKeyCombo(keyDown: plain)?.isValid == false)
         #expect(HotKeyCombo(keyDown: try event(.keyUp, key: kVK_ANSI_D, .command)) == nil)
     }
+
+    /// The one map of the edit keys of the search panel, the add window and the settings window.
+    @Test func theEditKeys() {
+        #expect(EditKeys.action(for: combo(kVK_ANSI_V, .command)) == #selector(NSText.paste(_:)))
+        #expect(EditKeys.action(for: combo(kVK_ANSI_C, .command)) == #selector(NSText.copy(_:)))
+        #expect(EditKeys.action(for: combo(kVK_ANSI_X, .command)) == #selector(NSText.cut(_:)))
+        #expect(EditKeys.action(for: combo(kVK_ANSI_A, .command)) == #selector(NSText.selectAll(_:)))
+        #expect(EditKeys.action(for: combo(kVK_ANSI_Z, .command)) == Selector(("undo:")))
+        #expect(EditKeys.action(for: combo(kVK_ANSI_Z, [.command, .shift])) == Selector(("redo:")))
+        #expect(EditKeys.action(for: combo(kVK_ANSI_V, [.command, .shift])) == nil)
+        #expect(EditKeys.action(for: combo(kVK_ANSI_E, .command)) == nil)
+    }
 }
