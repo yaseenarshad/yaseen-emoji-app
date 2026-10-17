@@ -772,7 +772,7 @@ final class PickSession {
         guard let online else { return [] }
         let start = tiles(kind).count
         var entries: [TileEntry] = []
-        for key in keys.sorted() where key.hasPrefix("klipy:") {
+        for key in keys.filter({ $0.hasPrefix("klipy:") }).sorted() {
             guard let item = online.item(String(key.dropFirst("klipy:".count))), item.kind.rawValue == kind.rawValue,
                   !isSaved(item) else { continue }
             entries.append(TileEntry(item: .online(item), words: [], order: start + entries.count))
