@@ -23,6 +23,8 @@ enum PanelPlace {
 final class SearchPanel: NSPanel {
     /// ⌘C: "Copy only" (D8).
     var onCopy: () -> Void = {}
+    /// ⌘1, ⌘2, ⌘3: the Emoji, GIFs or Memes tab (D10 of YAZ-2919). The number is 0, 1 or 2.
+    var onTab: (Int) -> Void = { _ in }
 
     init(size: NSSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size),
@@ -58,6 +60,9 @@ final class SearchPanel: NSPanel {
         case (kVK_ANSI_C, command):
             onCopy()
             return true
+        case (kVK_ANSI_1, command), (kVK_ANSI_2, command), (kVK_ANSI_3, command):
+            onTab([kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3].firstIndex(of: Int(combo.keyCode)) ?? 0)
+            return true
         case (kVK_ANSI_V, command): return send(#selector(NSText.paste(_:)))
         case (kVK_ANSI_X, command): return send(#selector(NSText.cut(_:)))
         case (kVK_ANSI_A, command): return send(#selector(NSText.selectAll(_:)))
@@ -72,7 +77,7 @@ final class SearchPanel: NSPanel {
     }
 }
 
-/// The search panel on the screen: the search box and the grid (D7, D8). It is the thin adapter of
+/// The search panel on the screen: the search box, the tabs and the grid (D7, D8; D10 of YAZ-2919). It is the thin adapter of
 /// `PickSession`: it turns keys and clicks into calls of the session, and shows what the session holds.
 /// One panel for the life of the app. It hides and shows again, so it opens fast.
 @MainActor
@@ -80,13 +85,16 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     /// D7: 460 points wide.
     static let width: CGFloat = 460
     static let fieldHeight: CGFloat = 52
-    static let gridHeight: CGFloat = 340
+    /// The row of the three tabs below the search box (D10 of YAZ-2919). The panel keeps its 392 points.
+    static let tabBarHeight: CGFloat = 30
+    static let gridHeight: CGFloat = 310
     static let cornerRadius: CGFloat = 14
-    static let placeholder = "Search emoji"
 
     private let session: PickSession
     private let panel: SearchPanel
     private let field = NSTextField()
+    private let tabs = NSSegmentedControl(labels: PickSession.Tab.allCases.map(\.title), trackingMode: .selectOne,
+                                          target: nil, action: nil)
     private let grid: EmojiGridView
     private let scrollView = NSScrollView()
     /// True between `stepAside()` and `comeBack()`. The panel loses the keyboard then, but the session stays open.
@@ -95,11 +103,13 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     init(session: PickSession) {
         self.session = session
         panel = SearchPanel(size: NSSize(width: SearchPanelController.width,
-                                         height: SearchPanelController.fieldHeight + SearchPanelController.gridHeight))
+                                         height: SearchPanelController.fieldHeight + SearchPanelController.tabBarHeight
+                                             + SearchPanelController.gridHeight))
         grid = EmojiGridView(session: session)
         super.init()
         panel.delegate = self
         panel.onCopy = { [weak session] in session?.copyOnly() }
+        panel.onTab = { [weak session] place in session?.select(tab: PickSession.Tab.allCases[place]) }
         layOut()
     }
 
@@ -128,7 +138,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 22)
-        field.placeholderString = SearchPanelController.placeholder
+        field.placeholderString = session.placeholder
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.delegate = self
@@ -138,7 +148,16 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         line.boxType = .separator
         background.addSubview(line)
 
-        scrollView.frame = NSRect(x: 0, y: 0, width: size.width, height: fieldTop)
+        // The tabs never take the keyboard: the search box keeps it.
+        tabs.frame = NSRect(x: 12, y: SearchPanelController.gridHeight + 3, width: size.width - 24, height: 24)
+        tabs.segmentDistribution = .fillEqually
+        tabs.refusesFirstResponder = true
+        tabs.selectedSegment = 0
+        tabs.target = self
+        tabs.action = #selector(tabClicked)
+        background.addSubview(tabs)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: size.width, height: SearchPanelController.gridHeight)
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -190,7 +209,8 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
 
     func reload() {
         if field.stringValue != session.query { field.stringValue = session.query }
-        field.placeholderString = session.addingWordFor.map { "A word for \($0.text)" } ?? SearchPanelController.placeholder
+        field.placeholderString = session.placeholder
+        tabs.selectedSegment = session.tab.rawValue
         grid.reload()
     }
 
@@ -230,13 +250,20 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
             session.enter(shift: shift || selector == #selector(NSResponder.insertLineBreak(_:)))
         case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)):
             session.escape()
-        case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
-            // The keyboard stays in the search box.
-            break
+        // The keyboard stays in the search box. Tab and Shift+Tab go round the tabs (D10 of YAZ-2919).
+        case #selector(NSResponder.insertTab(_:)): session.nextTab(back: false)
+        case #selector(NSResponder.insertBacktab(_:)): session.nextTab(back: true)
         default:
             return false
         }
         return true
+    }
+
+    @objc private func tabClicked() {
+        guard let tab = PickSession.Tab(rawValue: tabs.selectedSegment) else { return }
+        session.select(tab: tab)
+        // A click while "Add a word…" waits does not change the tab.
+        tabs.selectedSegment = session.tab.rawValue
     }
 
     // MARK: NSWindowDelegate

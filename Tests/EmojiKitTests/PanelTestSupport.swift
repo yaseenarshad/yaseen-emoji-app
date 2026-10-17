@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import UniformTypeIdentifiers
 @testable import EmojiKit
 
 // The fakes of the panel and Settings tests. Nothing here shows a window, posts a key event,
@@ -45,6 +46,15 @@ final class FakeClipboard: Clipboard {
 
     func write(_ text: String, transient: Bool) -> Int {
         contents = .text(text)
+        lastWriteIsTransient = transient
+        changeCount += 1
+        return changeCount
+    }
+
+    /// The same item as `SystemClipboard`: `ClipboardContents.fileItem`.
+    func write(file: URL, type: UTType, transient: Bool) -> Int? {
+        guard let item = ClipboardContents.fileItem(file, type: type, transient: transient) else { return nil }
+        contents = ClipboardContents(items: [item])
         lastWriteIsTransient = transient
         changeCount += 1
         return changeCount
@@ -145,27 +155,53 @@ final class PickRig {
     let later = FakeLater()
     let panel = FakePanel()
     let session: PickSession
+    /// The list of GIFs and memes, in the default preferences folder of the rig, with a fake Trash and a step clock.
+    let library: LibraryStore
+    let trash: FakeTrash
+    let thumbnails: Thumbnails
+    /// The files that "Show in Finder" showed.
+    private(set) var shownInFinder: [URL] = []
     /// The default preferences folder of the rig, and the Mac name "Test-Mac".
     var folders: PreferencesFolder { PreferencesFolder(defaultFolder: folder.defaultFolder, macName: "Test-Mac") }
 
-    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true) throws {
+    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil) throws {
         folder = try TempFolder()
         prefs = Prefs(defaults: defaults)
         store = YouStore(url: folder.youFile)
         store.load()
+        trash = FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true))
+        library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
+                               mediaFolder: folder.defaultFolder, trash: trash, now: StepClock().now)
+        library.load()
+        thumbnails = Thumbnails(folder: folder.url.appendingPathComponent("thumbs", isDirectory: true))
         access = FakePasteAccess(trusted: trusted)
         let paster = Paster(clipboard: clipboard, keys: keys, access: access, later: later)
-        session = PickSession(catalog: catalog, store: store, prefs: prefs, paster: paster)
+        session = PickSession(catalog: catalog, store: store, library: library, prefs: prefs, paster: paster,
+                              online: online, thumbnails: thumbnails)
         session.panel = panel
+        session.showInFinder = { [unowned self] in self.shownInFinder.append($0) }
     }
 
     /// The emoji texts of the grid.
-    var shownItems: [String] { session.items.map { session.shown($0) } }
+    var shownItems: [String] { session.emojis.map { session.shown($0) } }
 
     /// Puts the blue box on the first emoji with this text.
     func select(_ text: String) throws {
-        let place = try #require(session.items.firstIndex { $0.text == text }, "\(text) is not in the grid")
+        let place = try #require(session.emojis.firstIndex { $0.text == text }, "\(text) is not in the grid")
         session.select(place)
+    }
+
+    /// Adds your own GIF (2 frames, made in the test) or meme (a PNG) with these words. `seed` makes the bytes different.
+    @discardableResult
+    func addOwn(_ kind: ItemKind = .gif, words: [String], seed: Int = 0) throws -> Item {
+        let type: UTType = kind == .gif ? .gif : .png
+        let bytes = makeTestImage(width: 40 + seed, height: 30, type: type, frames: kind == .gif ? 2 : 1)
+        return try library.add(PreparedFile(bytes: bytes, ext: kind == .gif ? "gif" : "png", kind: kind), words: words).item
+    }
+
+    /// The place in the grid of the item with this key.
+    func place(of key: String) throws -> Int {
+        try #require(session.items.firstIndex { $0.key == key }, "\(key) is not in the grid")
     }
 
     /// The parts of an `AppController` with the same fakes, and a catalog that loads with no file.
@@ -174,6 +210,8 @@ final class PickRig {
                  loadCatalog: { catalog },
                  clipboard: clipboard, keys: keys, access: access, later: later,
                  trash: FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true)),
+                 thumbnailFolder: folder.url.appendingPathComponent("thumbs", isDirectory: true),
+                 showInFinder: { _ in },
                  makePanel: { [panel] _ in panel })
     }
 }
@@ -182,5 +220,44 @@ final class PickRig {
 func smallCatalog(_ count: Int, group: Int = 0) -> [Emoji] {
     (0..<count).map { place in
         Emoji(text: String(UnicodeScalar(0x1F600 + place)!), name: "face \(place)", group: group, order: place, words: [])
+    }
+}
+
+extension PickSession {
+    /// The emojis of the grid. The v0.1 tests read the Emoji tab with it: there each item is an emoji.
+    var emojis: [Emoji] { items.compactMap(\.emoji) }
+}
+
+/// KLIPY with no network (the seam of subissue 4). The test gives the known items and the results.
+@MainActor
+final class FakeOnline: OnlineResults {
+    var isOn = true
+    var onChange: () -> Void = {}
+    /// The items that this session knows, by slug.
+    var known: [String: OnlineItem] = [:]
+    /// The "From KLIPY" results of each search text.
+    var results: [String: OnlineSection] = [:]
+    /// The downloaded paste files, by slug.
+    var files: [String: URL] = [:]
+    private(set) var asked: [String] = []
+
+    func item(_ slug: String) -> OnlineItem? { known[slug] }
+
+    func section(for text: String, kind: ItemKind) -> OnlineSection? {
+        asked.append(text)
+        return results[text]
+    }
+
+    func pasteFile(for item: OnlineItem) -> URL? { files[item.id] }
+    func still(for item: OnlineItem) -> NSImage? { nil }
+    func moving(for item: OnlineItem) -> NSImage? { nil }
+
+    /// A KLIPY GIF with this slug. The URLs are never loaded.
+    static func gif(_ slug: String, kind: OnlineKind = .gif) -> OnlineItem {
+        let base = URL(string: "https://static.klipy.com/\(slug)")!
+        return OnlineItem(id: slug, number: nil, kind: kind, title: slug, still: base.appendingPathComponent("sm.jpg"),
+                          preview: base.appendingPathComponent("sm.gif"), file: base.appendingPathComponent("md.gif"),
+                          fileType: kind == .gif ? .gif : .png, fileExtension: kind == .gif ? "gif" : "png",
+                          width: 100, height: 100, bytes: nil)
     }
 }

@@ -69,14 +69,27 @@ The history and the synced settings are in the preferences folder. The default i
 - **The list:** `library-<Mac name>.json` in the preferences folder, one file for each Mac, with the same Mac name as `you-<Mac name>.json`. For each `id`, the newest `changed` of all Macs wins. The same time: the delete wins. A remove keeps the item with `removed`, so a later add on any Mac can win.
 - **The files:** `gifs/<id>.<ext>` and `memes/<id>.<ext>` in the GIFs and memes folder. The pref `yaseenEmoji.mediaFolder` stays on each Mac. "" is the preferences folder. The `id` is the first 16 hex characters of the SHA-256 of the file, so two Macs that add the same GIF write the same file.
 - **The counts and the learned words** stay in `you-<Mac name>.json`, with the keys `gif:<id>`, `meme:<id>` and `klipy:<klipyID>`.
-- **The still pictures:** `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png`, 290 × 290 pixels. They are not synced.
+- **The still pictures:** `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png`, 290 × 290 pixels. They are not synced. The panel makes a missing one when its tile shows, and deletes it when the item is removed, on this Mac or on a different Mac.
+
+### Add GIFs and memes from the Terminal (before the add window)
+
+The add window comes in subissue 3 of YAZ-2908. Until then, quit the app, then run the binary inside the app:
+
+```bash
+"/Applications/Yaseen Emoji.app/Contents/MacOS/YaseenEmoji" --add-media ~/Downloads/dance.gif ~/Downloads/fine.png --words "dance party"
+```
+
+- Each file goes through the same steps as the add window: the type check, MP4 and MOV to GIF, the 10 MB limit (`MediaImport.prepare`), then `LibraryStore.add`.
+- The words: the `--words` text. With none, a meme gets the words that Vision reads in it. With still none, the words come from the file name.
+- The command refuses to run while the app runs. It uses the prefs of the app, so run the binary inside the app, not `.build/debug/YaseenEmoji`.
+- Exit codes: 0 done, 1 a file failed, 2 no file, 3 the app runs.
 
 To point the app at a folder without Settings, quit the app, then run `defaults write com.yaseenarshad.yaseenemoji yaseenEmoji.preferencesFolder -string "<folder>"`, then open the app.
 
 ## The code
 
 - `Sources/EmojiKit`: all the code of the app, as a library. Thus the tests can import it.
-- `Sources/YaseenEmoji/main.swift`: the executable. It runs `--import-uses`, or it calls `AppController.main()`.
+- `Sources/YaseenEmoji/main.swift`: the executable. It runs `--import-uses` or `--add-media`, or it calls `AppController.main()`.
 - `Tests/EmojiKitTests`: the unit tests.
 - The package uses the Swift 5 language mode. The compiler of CI can be older than the compiler on your Mac.
 
@@ -93,10 +106,13 @@ The parts of `EmojiKit`:
 - `Library.swift`: `Item` (one GIF or meme), `LibraryFile` (one `library-<Mac name>.json`), `LibraryStore` (this Mac's list, the lists of the other Macs, the add of a file, the remove to the Trash, the missing files), and `MediaFolder` (the GIFs and memes folder and its move). `Trash` is a protocol, so a test never touches the real Trash.
 - `MediaImport`: the add of a file (D5 and D8 of YAZ-2919): the kind from the bytes, MP4 and MOV to GIF, the 10 MB limit, the still picture of a tile, and the words of a meme with Vision. Each call runs off the main thread.
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
-- `PickSession`: the rules of the panel with no window: the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`) and "Hide from Your most used".
-- `Paster`: a pick. It saves the clipboard, writes the emoji, posts ⌘V, and puts the old clipboard back after 0.3 s. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
-- `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`.
-- `EmojiGrid.swift`: one view that draws only the lines on the screen, the right-click menu, and the drag of the panel (a move of more than 4 points, `EmojiGridView.isDrag(from:to:)`).
+- `AddCommand`: `--add-media`, the add of GIFs and memes from the Terminal, until the add window exists.
+- `PickSession`: the rules of the panel with no window: the tab (Emoji, GIFs, Memes; each open starts on Emoji), the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`, `perform(_:)`) and "Hide from Your most used". One grid item is a `PickItem`: an emoji, your own GIF or meme, or a KLIPY item. Its `key` is the key in `you-<Mac>.json`. The GIFs and Memes tabs use the same `Search` as the emojis (`Searchable`, `TileEntry`).
+- `OnlineResults.swift`: the place of KLIPY in the GIFs and Memes tabs. With no `OnlineResults`, the tabs show only your own files and no "From KLIPY" section.
+- `Paster`: a pick. It saves the clipboard, writes the emoji or the file, posts ⌘V, and puts the old clipboard back after 0.3 s (a file: 1.0 s). A file is one clipboard item (`ClipboardContents.fileItem`): the file URL, the file's own bytes in its own type, and the transient mark for a paste. No TIFF. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
+- `SearchPanel.swift`: the non-activating panel on the screen, and `PanelPlace` (where it opens). It turns keys into calls of `PickSession`: Tab and Shift+Tab go round the tabs, ⌘1 to ⌘3 go to a tab.
+- `EmojiGrid.swift`: one view that draws only the lines on the screen (9 emojis or 3 tiles in a row, `GridMetrics`), the right-click menu, and the drag of the panel (a move of more than 4 points, `EmojiGridView.isDrag(from:to:)`). Only the tile with the blue box moves: one `NSImageView` over that tile.
+- `Thumbnails`: the still pictures of the tiles. It loads at most 4 at a time, off the main thread, into an `NSCache` of at most 120. It deletes the still picture of a removed item.
 - `Prefs`: the settings in `UserDefaults`, with the prefix `yaseenEmoji.`.
 - `SettingsModel` and `SettingsWindow.swift`: the rules of Settings with no window, and the SwiftUI form in a non-activating panel.
 - `HotKey.swift`: the global hotkey (Carbon `RegisterEventHotKey`, no permission). `HotKeyRegistering` is a protocol, so a test uses a fake.
@@ -114,7 +130,7 @@ The parts of `EmojiKit`:
 - A test never touches the real Trash. It uses `FakeTrash` in a temp folder. The videos and pictures of the import tests are made in the test.
 - A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`.
 - A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
-- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search, and the change of a 5 s MP4 to a GIF. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
+- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search of the emojis and of 2,000 made-up GIFs, and the change of a 5 s MP4 to a GIF. A `MEMORY` line gives the memory of 120 still pictures. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
 - The window parts (the panel, the grid, the menu on the screen) have no test. Check them on the real screen.
 
 ### The log

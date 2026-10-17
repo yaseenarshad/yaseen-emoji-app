@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import UniformTypeIdentifiers
 
 /// Everything that was on the clipboard: each item with each of its types, in order.
 struct ClipboardContents: Equatable {
@@ -14,6 +15,20 @@ struct ClipboardContents: Equatable {
     }
 
     var items: [Item]
+
+    /// The clipboard item of a GIF or meme (D6 of YAZ-2919): the file URL, then the file's own bytes in its own type
+    /// (`com.compuserve.gif`, `public.png` or `public.jpeg`), then the transient mark for a paste. No TIFF, and no
+    /// extra PNG for a GIF: Slack and Chrome then paste a still picture. Nil when the file cannot be read.
+    @MainActor
+    static func fileItem(_ url: URL, type: UTType, transient: Bool) -> Item? {
+        guard let bytes = try? Data(contentsOf: url) else { return nil }
+        var values: [(type: String, data: Data)] = [
+            (NSPasteboard.PasteboardType.fileURL.rawValue, Data(url.absoluteString.utf8)),
+            (type.identifier, bytes),
+        ]
+        if transient { values.append((SystemClipboard.transientType.rawValue, Data())) }
+        return Item(values: values)
+    }
 }
 
 /// The clipboard (D2). A test uses a fake one, so it never changes the real clipboard.
@@ -26,6 +41,9 @@ protocol Clipboard: AnyObject {
     /// Puts one text on the clipboard. Returns the new `changeCount`: the app's own.
     /// `transient`: the text stays only for a paste, so clipboard history apps must not keep it.
     func write(_ text: String, transient: Bool) -> Int
+    /// Puts one file on the clipboard: the item of `ClipboardContents.fileItem` (D6 of YAZ-2919).
+    /// Returns the new `changeCount`, or nil when the file cannot be read. Then the clipboard does not change.
+    func write(file: URL, type: UTType, transient: Bool) -> Int?
     /// Puts saved contents back.
     func restore(_ contents: ClipboardContents)
 }
@@ -53,10 +71,22 @@ protocol Later: AnyObject {
     func run(after seconds: TimeInterval, _ work: @escaping @MainActor () -> Void)
 }
 
-/// Puts a picked emoji where it must go (D2): on the clipboard, then ⌘V into the app in front,
-/// then the old clipboard back.
+/// Puts a picked emoji, GIF or meme where it must go (D2; D6 of YAZ-2919): on the clipboard, then ⌘V into
+/// the app in front, then the old clipboard back.
 @MainActor
 final class Paster {
+    /// What a pick puts on the clipboard.
+    enum Clip: Equatable {
+        case text(String)
+        /// A GIF or meme file, with the type of its bytes.
+        case file(URL, type: UTType)
+
+        /// The file with the type of its extension: `com.compuserve.gif`, `public.png` or `public.jpeg`.
+        static func file(at url: URL) -> Clip? {
+            UTType(filenameExtension: url.pathExtension).map { .file(url, type: $0) }
+        }
+    }
+
     /// ⌘V: key code 9 with Command. The event has only this flag, so a Shift that the user
     /// still holds does not make it ⌘⇧V.
     static let pasteKey = HotKeyCombo(keyCode: UInt32(kVK_ANSI_V), modifiers: .command)
@@ -64,6 +94,8 @@ final class Paster {
     static let postDelay: TimeInterval = 0.05
     /// From the ⌘V to the restore of the old clipboard (D2).
     static let restoreDelay: TimeInterval = 0.3
+    /// The same for a file (D6 of YAZ-2919): an app can read a file later than a text.
+    static let fileRestoreDelay: TimeInterval = 1.0
     /// From the ⌘V to `afterPaste`. The app in front must get the ⌘V before the panel takes the keyboard again.
     static let comeBackDelay: TimeInterval = 0.15
 
@@ -88,10 +120,16 @@ final class Paster {
         mode == .paste && access.isTrusted && !access.secureInputIsOn
     }
 
-    /// Puts `text` on the clipboard. With `paste`, it also posts ⌘V and later puts the old clipboard back,
-    /// but only if the clipboard is still the app's own. Then a new copy of the user in the wait stays.
-    /// `afterPaste` runs when the panel can take the keyboard again. With no paste, it runs at once.
+    /// Puts `text` on the clipboard, as `deliver(_ clip:)`.
     func deliver(_ text: String, paste: Bool, afterPaste: @escaping @MainActor () -> Void = {}) {
+        deliver(.text(text), paste: paste, afterPaste: afterPaste)
+    }
+
+    /// Puts `clip` on the clipboard. With `paste`, it also posts ⌘V and later puts the old clipboard back,
+    /// but only if the clipboard is still the app's own. Then a new copy of the user in the wait stays.
+    /// A file waits 1.0 s for the restore, a text 0.3 s. A file that cannot be read changes nothing.
+    /// `afterPaste` runs when the panel can take the keyboard again. With no paste, it runs at once.
+    func deliver(_ clip: Clip, paste: Bool, afterPaste: @escaping @MainActor () -> Void = {}) {
         // A second pick in the wait: the clipboard of the user is the one that the first pick saved.
         let saved: ClipboardContents
         if let pending, clipboard.changeCount == pending.own {
@@ -99,9 +137,22 @@ final class Paster {
         } else {
             saved = clipboard.read()
         }
-        let own = clipboard.write(text, transient: paste)
+        let written: Int?
+        let wait: TimeInterval
+        switch clip {
+        case .text(let text):
+            written = clipboard.write(text, transient: paste)
+            wait = Paster.restoreDelay
+        case .file(let url, let type):
+            written = clipboard.write(file: url, type: type, transient: paste)
+            wait = Paster.fileRestoreDelay
+        }
+        guard let own = written else {
+            afterPaste()
+            return
+        }
         guard paste else {
-            // Copy only: the emoji stays, and a restore that waits does nothing.
+            // Copy only: the item stays, and a restore that waits does nothing.
             pending = nil
             afterPaste()
             return
@@ -110,7 +161,7 @@ final class Paster {
         later.run(after: Paster.postDelay) { [self] in
             keys.post(Paster.pasteKey)
             later.run(after: Paster.comeBackDelay, afterPaste)
-            later.run(after: Paster.restoreDelay) { [self] in
+            later.run(after: wait) { [self] in
                 // A later pick owns the restore now.
                 guard let pending, pending.own == own else { return }
                 self.pending = nil
@@ -147,6 +198,12 @@ final class SystemClipboard: Clipboard {
         item.setString(text, forType: .string)
         if transient { item.setData(Data(), forType: SystemClipboard.transientType) }
         pasteboard.writeObjects([item])
+        return pasteboard.changeCount
+    }
+
+    func write(file: URL, type: UTType, transient: Bool) -> Int? {
+        guard let item = ClipboardContents.fileItem(file, type: type, transient: transient) else { return nil }
+        restore(ClipboardContents(items: [item]))
         return pasteboard.changeCount
     }
 
