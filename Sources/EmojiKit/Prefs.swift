@@ -48,6 +48,7 @@ final class Prefs {
         static let pickModeChangedAt = "yaseenEmoji.pickModeChangedAt"
         static let defaultToneChangedAt = "yaseenEmoji.defaultToneChangedAt"
         static let preferencesFolder = "yaseenEmoji.preferencesFolder"
+        static let mediaFolder = "yaseenEmoji.mediaFolder"
         static let macName = "yaseenEmoji.macName"
     }
 
@@ -119,6 +120,12 @@ final class Prefs {
     var preferencesFolder: String {
         get { defaults.object(forKey: Key.preferencesFolder) as? String ?? "" }
         set { defaults.set(newValue, forKey: Key.preferencesFolder) }
+    }
+
+    /// The path of the GIFs and memes folder (D4 of YAZ-2919). "" is the preferences folder. It stays on each Mac.
+    var mediaFolder: String {
+        get { defaults.object(forKey: Key.mediaFolder) as? String ?? "" }
+        set { defaults.set(newValue, forKey: Key.mediaFolder) }
     }
 
     /// The safe name of this Mac for `you-<Mac name>.json`. The first call makes it from the computer
