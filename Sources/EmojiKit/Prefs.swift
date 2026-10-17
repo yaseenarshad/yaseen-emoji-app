@@ -82,6 +82,7 @@ final class Prefs {
         static let preferencesFolder = "yaseenEmoji.preferencesFolder"
         static let mediaFolder = "yaseenEmoji.mediaFolder"
         static let macName = "yaseenEmoji.macName"
+        static let settingsPage = "yaseenEmoji.settingsPage"
 
         static func klipy(_ kind: ItemKind) -> String { kind == .gif ? klipyGIFs : klipyMemes }
         /// `yaseenEmoji.pickMode.emoji` and so on: the key of one kind (D16 of YAZ-2919).
@@ -213,6 +214,12 @@ final class Prefs {
     var mediaFolder: String {
         get { defaults.object(forKey: Key.mediaFolder) as? String ?? "" }
         set { defaults.set(newValue, forKey: Key.mediaFolder) }
+    }
+
+    /// The page of Settings that you used last (D19 of YAZ-2919). It stays on each Mac. The start value is General.
+    var settingsPage: SettingsPage {
+        get { (defaults.object(forKey: Key.settingsPage) as? String).flatMap(SettingsPage.init(rawValue:)) ?? .general }
+        set { defaults.set(newValue.rawValue, forKey: Key.settingsPage) }
     }
 
     /// The safe name of this Mac for `you-<Mac name>.json`. The first call makes it from the computer

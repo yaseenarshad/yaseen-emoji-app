@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16;
-/// D4, D14 and D16 of YAZ-2919).
+/// D4, D14, D16 and D19 of YAZ-2919).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -23,6 +23,7 @@ final class SettingsModel: ObservableObject {
     static let mediaDifferentText = "Your GIFs and memes are in a different folder."
     static let mediaResetQuestion = "Your GIFs and memes move back into the preferences folder. The app copies each file, checks it, then removes the old copy."
     static let mediaNotMovedText = "Yaseen Emoji can't move your GIFs and memes into this folder. They stay in the old folder."
+    static let folderNotMadeText = "Yaseen Emoji can't make this folder."
     static let klipyKeyNote = "Without a key, you see only your own GIFs and memes."
     static let klipyKeyNotSavedText = "Yaseen Emoji can't keep the key in the Keychain."
     static let klipyKeySavedNote = "Saved in this Mac's Keychain. Use Change… or Remove… to edit it."
@@ -33,6 +34,8 @@ final class SettingsModel: ObservableObject {
     /// The Accessibility pane of System Settings.
     static let accessibilityURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
 
+    /// The page on the right (D19 of YAZ-2919). It starts on the page that you used last on this Mac.
+    @Published private(set) var page: SettingsPage
     @Published private(set) var hotKey: HotKeyCombo
     /// True while the hotkey row waits for a key. The hotkey is off during that time.
     @Published private(set) var isRecording = false
@@ -58,12 +61,16 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var folderPath = ""
     /// True when this Mac uses the default folder.
     @Published private(set) var folderIsDefault = true
+    /// True when the chosen preferences folder is missing, and this Mac uses the default folder (D16).
+    @Published private(set) var folderIsMissing = false
     /// The red line below the preferences folder: the folder is missing, or the app can't write into it.
     @Published private(set) var folderProblem: String?
     /// The GIFs and memes folder in use (D4 of YAZ-2919).
     @Published private(set) var mediaFolderPath = ""
     /// True when the GIFs and memes are in the preferences folder (the pref is "").
     @Published private(set) var mediaFolderIsSame = true
+    /// True when the GIFs and memes folder that you chose is missing (D4 of YAZ-2919).
+    @Published private(set) var mediaFolderIsMissing = false
     /// The red line below the GIFs and memes folder: the folder is missing, or a move failed.
     @Published private(set) var mediaFolderProblem: String?
     /// The text of the KLIPY key box (D14 of YAZ-2919): what you typed. It never holds the saved key.
@@ -84,6 +91,9 @@ final class SettingsModel: ObservableObject {
     var onTonesChanged: () -> Void = {}
     /// Opens a URL. The app opens System Settings. A test keeps the URL.
     var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// "Show in Finder" of the two folder rows (D19 of YAZ-2919): a Finder window with the contents of the folder.
+    /// A test keeps the folder, so no test opens Finder.
+    var openInFinder: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Asks for a folder and gives it, or nil on Cancel. The window shows the folder picker. A test gives a folder.
     var pickFolder: (@escaping (URL?) -> Void) -> Void = { $0(nil) }
     /// The same for "Set GIFs and memes folder…".
@@ -117,6 +127,7 @@ final class SettingsModel: ObservableObject {
         self.folders = folders
         self.library = library
         self.keyStore = keyStore
+        page = prefs.settingsPage
         hotKey = prefs.hotKey
         defaultTone = prefs.defaultTone
         klipyGIFs = prefs.searchesKlipy(.gif)
@@ -124,6 +135,20 @@ final class SettingsModel: ObservableObject {
         hasKlipyKey = !(keyStore.read() ?? "").isEmpty
         showEnter()
         refresh()
+    }
+
+    // MARK: The pages (D19 of YAZ-2919)
+
+    /// A click in the list. The page is kept on this Mac only. A page change stops the hotkey recorder,
+    /// the type-to-confirm box and "Change…" of the KLIPY key, the same as a close of the window:
+    /// a recorder on a hidden page would keep the hotkey off and take the next key.
+    func select(_ page: SettingsPage) {
+        guard page != self.page else { return }
+        cancelRecording()
+        cancelConfirm()
+        if isChangingKlipyKey { cancelChangingKlipyKey() }
+        self.page = page
+        prefs.settingsPage = page
     }
 
     // MARK: The hotkey (D8)
@@ -355,6 +380,30 @@ final class SettingsModel: ObservableObject {
         usePreferencesFolder(folders.defaultFolder)
     }
 
+    /// "Show in Finder" of the preferences folder (D19 of YAZ-2919): the folder of this Mac's history file.
+    /// A missing folder is made first. A chosen folder that is missing is not made: the row shows the red line.
+    func showPreferencesFolder() {
+        guard !folderIsMissing else { return }
+        if makeAndOpen(store.folder) {
+            if folderWriteProblem == SettingsModel.folderNotMadeText { folderWriteProblem = nil }
+        } else {
+            folderWriteProblem = SettingsModel.folderNotMadeText
+        }
+        refresh()
+    }
+
+    /// Makes `folder` when it is missing, with its parent folders, then opens it in Finder.
+    /// Returns false when the app can't make it.
+    private func makeAndOpen(_ folder: URL) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            return false
+        }
+        openInFinder(folder)
+        return true
+    }
+
     // MARK: The GIFs and memes folder (D4 and D14 of YAZ-2919)
 
     /// "Set GIFs and memes folder…": the folder picker, then `useMediaFolder`.
@@ -385,6 +434,19 @@ final class SettingsModel: ObservableObject {
     /// Settings asks you to type "reset" first (D19).
     func useSameMediaFolder() {
         useMediaFolder(store.folder)
+    }
+
+    /// "Show in Finder" of the GIFs and memes folder (D19 of YAZ-2919): the folder of `gifs/` and `memes/`.
+    /// The same rules as `showPreferencesFolder`. A chosen folder that is missing is not made (D4): an empty folder
+    /// in its place would split the files.
+    func showMediaFolder() {
+        guard !library.mediaFolderIsMissing else { return }
+        if makeAndOpen(library.mediaFolder) {
+            if mediaMoveProblem == SettingsModel.folderNotMadeText { mediaMoveProblem = nil }
+        } else {
+            mediaMoveProblem = SettingsModel.folderNotMadeText
+        }
+        refresh()
     }
 
     /// The red line of a failed move: the reason of the folder move, or the general text.
@@ -527,10 +589,12 @@ final class SettingsModel: ObservableObject {
         // The store uses the default folder when the chosen folder was missing at the start.
         let isMissing = !chosen.isEmpty
             && store.folder.standardizedFileURL.path != URL(fileURLWithPath: chosen).standardizedFileURL.path
+        folderIsMissing = isMissing
         folderProblem = folderWriteProblem ?? (isMissing ? PreferencesFolder.missingText : nil)
         mediaFolderIsSame = prefs.mediaFolder.isEmpty
         mediaFolderPath = library.mediaFolder.path
-        mediaFolderProblem = mediaMoveProblem ?? (library.mediaFolderIsMissing ? MediaFolder.missingText : nil)
+        mediaFolderIsMissing = library.mediaFolderIsMissing
+        mediaFolderProblem = mediaMoveProblem ?? (mediaFolderIsMissing ? MediaFolder.missingText : nil)
     }
 
     // MARK: Hidden from Your most used (D15)
