@@ -4,10 +4,12 @@ import SwiftUI
 
 /// The rows of the settings window (D10): the hotkey, "When you pick", "Default skin tone",
 /// "Start at login", the Accessibility line, "Hidden from Your most used", "Forget learned words",
-/// and the preferences folder (D16).
+/// the preferences folder (D16), and "GIFs and memes" (D14 of YAZ-2919).
 /// Each change saves at once.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    /// True while the KLIPY key box has the keyboard. A click outside saves the key.
+    @FocusState private var keyBoxHasFocus: Bool
 
     var body: some View {
         Form {
@@ -28,6 +30,10 @@ struct SettingsView: View {
             }
             Section("Preferences folder") {
                 folderRow
+            }
+            Section("GIFs and memes") {
+                mediaFolderRow
+                klipyKeyRow
             }
         }
         .formStyle(.grouped)
@@ -166,6 +172,59 @@ struct SettingsView: View {
         }
     }
 
+    /// D14 of YAZ-2919: the folder of `gifs/` and `memes/`, the folder picker, and the way back to the preferences folder.
+    private var mediaFolderRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("GIFs and memes folder") {
+                Text((model.mediaFolderPath as NSString).abbreviatingWithTildeInPath)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(model.mediaFolderPath)
+            }
+            Text(model.mediaFolderIsSame ? SettingsModel.mediaSameText : SettingsModel.mediaDifferentText)
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                // Shown only when a different folder is set.
+                if !model.mediaFolderIsSame && model.confirming != .resetMedia {
+                    Button("Reset to Same Folder…") { model.ask(.resetMedia) }
+                        .help("Move your GIFs and memes back into the preferences folder.")
+                }
+                Button("Set GIFs and memes folder…") { model.chooseMediaFolder() }
+            }
+            if model.confirming == .resetMedia {
+                confirmBox(SettingsModel.mediaResetQuestion, button: "Reset")
+            }
+            if let problem = model.mediaFolderProblem {
+                Text(problem).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// D2 and D14 of YAZ-2919: the KLIPY key in a box that hides it. Enter or a click outside saves it into the Keychain.
+    private var klipyKeyRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("KLIPY key") {
+                HStack {
+                    SecureField("Paste your KLIPY key", text: $model.klipyKeyText)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($keyBoxHasFocus)
+                        .onSubmit { model.saveKlipyKey() }
+                        .frame(maxWidth: 200)
+                    Button("Get a free key") { model.openKlipyKeyPage() }
+                        .help(SettingsModel.klipyKeyURL.absoluteString)
+                }
+            }
+            .onChange(of: keyBoxHasFocus) { _, hasFocus in
+                if !hasFocus { model.saveKlipyKey() }
+            }
+            Text(SettingsModel.klipyKeyNote).font(.callout).foregroundStyle(.secondary)
+            if let problem = model.klipyKeyProblem {
+                Text(problem).font(.callout).foregroundStyle(.red)
+            }
+        }
+    }
+
     /// The first click asks in the same row. No alert: an alert takes the keyboard from the panel.
     private var forgetRow: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -239,19 +298,29 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         host.sizingOptions = [.preferredContentSize]
         window.contentViewController = host
         window.center()
-        model.pickFolder = { [weak self] done in self?.pickFolder(done) }
+        model.pickFolder = { [weak self] done in
+            guard let self else { return done(nil) }
+            pickFolder(message: "Pick the preferences folder. Each Mac keeps its own history file in it.",
+                       start: model.folderPath, done)
+        }
+        model.pickMediaFolder = { [weak self] done in
+            guard let self else { return done(nil) }
+            pickFolder(message: "Pick the GIFs and memes folder. The app moves gifs/ and memes/ into it.",
+                       start: model.mediaFolderPath, done)
+        }
     }
 
-    /// "Set preferences folder…": a folder picker on the settings window. You can make a new folder in it.
-    private func pickFolder(_ done: @escaping (URL?) -> Void) {
+    /// "Set preferences folder…" and "Set GIFs and memes folder…": a folder picker on the settings window.
+    /// You can make a new folder in it.
+    private func pickFolder(message: String, start: String, _ done: @escaping (URL?) -> Void) {
         let picker = NSOpenPanel()
         picker.canChooseDirectories = true
         picker.canChooseFiles = false
         picker.canCreateDirectories = true
         picker.allowsMultipleSelection = false
         picker.prompt = "Use This Folder"
-        picker.message = "Pick the preferences folder. Each Mac keeps its own history file in it."
-        picker.directoryURL = URL(fileURLWithPath: model.folderPath, isDirectory: true)
+        picker.message = message
+        picker.directoryURL = URL(fileURLWithPath: start, isDirectory: true)
         // A sheet on this window: the window does not activate the app, and a sheet does not need that.
         picker.beginSheetModal(for: window) { response in
             done(response == .OK ? picker.url : nil)
@@ -298,12 +367,26 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func keyDown(_ combo: HotKeyCombo, windowNumber: Int) -> Bool {
         guard windowNumber == window.windowNumber else { return false }
         if model.keyDown(combo) { return true }
-        // The app has no main menu, so nothing else gives Command-W to the window.
-        if combo == HotKeyCombo(keyCode: UInt32(kVK_ANSI_W), modifiers: .command) {
+        // The app has no main menu, so nothing else gives Command-W and the edit keys to the window.
+        // ⌘V pastes the KLIPY key into its box (D14 of YAZ-2919).
+        let command = NSEvent.ModifierFlags.command
+        switch (Int(combo.keyCode), combo.modifiers) {
+        case (kVK_ANSI_W, command):
             window.performClose(nil)
             return true
+        case (kVK_ANSI_V, command): return send(#selector(NSText.paste(_:)))
+        case (kVK_ANSI_C, command): return send(#selector(NSText.copy(_:)))
+        case (kVK_ANSI_X, command): return send(#selector(NSText.cut(_:)))
+        case (kVK_ANSI_A, command): return send(#selector(NSText.selectAll(_:)))
+        case (kVK_ANSI_Z, command): return send(Selector(("undo:")))
+        case (kVK_ANSI_Z, [.command, .shift]): return send(Selector(("redo:")))
+        default: return false
         }
-        return false
+    }
+
+    /// Gives an edit action to the box with the keyboard.
+    private func send(_ action: Selector) -> Bool {
+        window.firstResponder?.tryToPerform(action, with: nil) ?? false
     }
 
     // MARK: NSWindowDelegate
@@ -321,6 +404,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A key that you typed and did not save yet goes into the Keychain.
+        model.saveKlipyKey()
         model.cancelRecording()
         model.cancelConfirm()
         stopKeyMonitor()

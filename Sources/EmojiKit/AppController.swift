@@ -126,7 +126,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         pasteFiles = PasteFiles(cache: parts.cacheFolder, session: parts.onlineSession)
         klipy = KlipyResults(keys: parts.klipyKey, session: parts.onlineSession, pasteFiles: pasteFiles, later: parts.later)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
-                                 folders: folders)
+                                 folders: folders, library: library, keyStore: parts.klipyKey)
     }
 
     /// Starts the app with the real hotkey center and the real login item. It does not return.
@@ -206,6 +206,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         statusMenu.showHotKey(settings.hotKey)
         settings.onHotKeyChanged = { [weak self] hotKey in self?.statusMenu.showHotKey(hotKey) }
         settings.onTonesChanged = { [weak self] in self?.panel?.reload() }
+        // A new or removed KLIPY key: the GIFs and Memes tabs search KLIPY, or stop (D2 of YAZ-2919).
+        settings.onKlipyKeyChanged = { [weak self] in self?.klipy.refresh() }
         hotKeys.onHotKey = { [weak self] kind in
             // macOS calls this on the main thread.
             MainActor.assumeIsolated {

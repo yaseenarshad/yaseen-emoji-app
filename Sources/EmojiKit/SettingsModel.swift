@@ -1,7 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16).
+/// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16;
+/// D4 and D14 of YAZ-2919).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -18,6 +19,14 @@ final class SettingsModel: ObservableObject {
     static let resetQuestion = "This Mac stops sharing its history with your other Macs. Your files stay in the folder."
     static let forgottenText = "The learned words are gone."
     static let folderNotWrittenText = "Yaseen Emoji can't write into this folder. Pick a different folder."
+    static let mediaSameText = "Same as the preferences folder."
+    static let mediaDifferentText = "Your GIFs and memes are in a different folder."
+    static let mediaResetQuestion = "Your GIFs and memes move back into the preferences folder. The app copies each file, checks it, then removes the old copy."
+    static let mediaNotMovedText = "Yaseen Emoji can't move your GIFs and memes into this folder. They stay in the old folder."
+    static let klipyKeyNote = "Without a key, you see only your own GIFs and memes."
+    static let klipyKeyNotSavedText = "Yaseen Emoji can't keep the key in the Keychain."
+    /// The Partner Panel of KLIPY, where you make a free key ("API Keys").
+    static let klipyKeyURL = URL(string: "https://partner.klipy.com/")!
     /// The Accessibility pane of System Settings.
     static let accessibilityURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
 
@@ -47,6 +56,18 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var folderIsDefault = true
     /// The red line below the preferences folder: the folder is missing, or the app can't write into it.
     @Published private(set) var folderProblem: String?
+    /// The GIFs and memes folder in use (D4 of YAZ-2919).
+    @Published private(set) var mediaFolderPath = ""
+    /// True when the GIFs and memes are in the preferences folder (the pref is "").
+    @Published private(set) var mediaFolderIsSame = true
+    /// The red line below the GIFs and memes folder: the folder is missing, or a move failed.
+    @Published private(set) var mediaFolderProblem: String?
+    /// The text of the KLIPY key box (D14 of YAZ-2919). It holds the saved key, or what you typed.
+    @Published var klipyKeyText = ""
+    /// True when this Mac's Keychain has a KLIPY key.
+    @Published private(set) var hasKlipyKey = false
+    /// The red line below the key box.
+    @Published private(set) var klipyKeyProblem: String?
 
     /// The menu shows the hotkey, so the app must know each change.
     var onHotKeyChanged: (HotKeyCombo) -> Void = { _ in }
@@ -56,6 +77,10 @@ final class SettingsModel: ObservableObject {
     var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Asks for a folder and gives it, or nil on Cancel. The window shows the folder picker. A test gives a folder.
     var pickFolder: (@escaping (URL?) -> Void) -> Void = { $0(nil) }
+    /// The same for "Set GIFs and memes folder…".
+    var pickMediaFolder: (@escaping (URL?) -> Void) -> Void = { $0(nil) }
+    /// The KLIPY key changed: the panel searches KLIPY with the new key, or stops.
+    var onKlipyKeyChanged: () -> Void = {}
 
     private let prefs: Prefs
     private let hotKeys: HotKeyRegistering
@@ -63,20 +88,30 @@ final class SettingsModel: ObservableObject {
     private let access: PasteAccess
     private let store: YouStore
     private let folders: PreferencesFolder
+    /// The list of GIFs and memes. It moves with the preferences folder (D3, D4 of YAZ-2919).
+    private let library: LibraryStore
+    private let keyStore: KeyStore
     /// The red line of a folder that the app could not write. The next refresh keeps it.
     private var folderWriteProblem: String?
+    /// The red line of a move of the GIFs and memes that failed. The next refresh keeps it.
+    private var mediaMoveProblem: String?
 
     init(prefs: Prefs, hotKeys: HotKeyRegistering, loginItem: LoginItem, access: PasteAccess, store: YouStore,
-         folders: PreferencesFolder) {
+         folders: PreferencesFolder, library: LibraryStore, keyStore: KeyStore) {
         self.prefs = prefs
         self.hotKeys = hotKeys
         self.loginItem = loginItem
         self.access = access
         self.store = store
         self.folders = folders
+        self.library = library
+        self.keyStore = keyStore
         hotKey = prefs.hotKey
         pickMode = prefs.pickMode
         defaultTone = prefs.defaultTone
+        let key = keyStore.read() ?? ""
+        klipyKeyText = key
+        hasKlipyKey = !key.isEmpty
         refresh()
     }
 
@@ -200,10 +235,13 @@ final class SettingsModel: ObservableObject {
         }
     }
 
-    /// Writes this Mac's file into `folder`, then uses the folder. The files of the other Macs
-    /// that are already there count at once, and their newer settings apply. The old file stays.
+    /// Writes this Mac's history file and list into `folder`, then uses the folder. The files of the other Macs
+    /// that are already there count at once, and their newer settings apply. The old files stay.
+    /// When the GIFs and memes are in the preferences folder, they move too (D4 of YAZ-2919). If that move fails,
+    /// they stay in the old folder, and the GIFs and memes folder becomes the old folder, so no file is lost.
     func usePreferencesFolder(_ folder: URL) {
         let isDefault = folder.standardizedFileURL.path == folders.defaultFolder.standardizedFileURL.path
+        let oldHistory = store.url
         do {
             try store.move(to: folders.ownFile(in: folder))
         } catch {
@@ -211,8 +249,27 @@ final class SettingsModel: ObservableObject {
             refresh()
             return
         }
+        do {
+            try library.move(to: folder.appendingPathComponent(folders.libraryFileName))
+        } catch {
+            // The history goes back, so the two files stay in one folder.
+            try? store.move(to: oldHistory)
+            folderWriteProblem = SettingsModel.folderNotWrittenText
+            refresh()
+            return
+        }
         prefs.preferencesFolder = isDefault ? "" : folder.path
         folderWriteProblem = nil
+        if prefs.mediaFolder.isEmpty {
+            let oldMedia = library.mediaFolder
+            do {
+                try library.useMediaFolder(folder)
+                mediaMoveProblem = nil
+            } catch {
+                prefs.mediaFolder = oldMedia.path
+                mediaMoveProblem = SettingsModel.mediaMoveText(error)
+            }
+        }
         applySynced()
         refresh()
     }
@@ -221,6 +278,75 @@ final class SettingsModel: ObservableObject {
     /// Settings asks you to type "reset" first (D19).
     func useThisMacOnly() {
         usePreferencesFolder(folders.defaultFolder)
+    }
+
+    // MARK: The GIFs and memes folder (D4 and D14 of YAZ-2919)
+
+    /// "Set GIFs and memes folder…": the folder picker, then `useMediaFolder`.
+    func chooseMediaFolder() {
+        pickMediaFolder { [weak self] folder in
+            guard let folder else { return }
+            self?.useMediaFolder(folder)
+        }
+    }
+
+    /// Moves `gifs/` and `memes/` into `folder` (copy, check, then remove the old copies), then uses it.
+    /// The pref changes only after a move with no error. The preferences folder itself is the pref "".
+    func useMediaFolder(_ folder: URL) {
+        let isSame = folder.standardizedFileURL.path == store.folder.standardizedFileURL.path
+        do {
+            try library.useMediaFolder(folder)
+        } catch {
+            mediaMoveProblem = SettingsModel.mediaMoveText(error)
+            refresh()
+            return
+        }
+        prefs.mediaFolder = isSame ? "" : folder.path
+        mediaMoveProblem = nil
+        refresh()
+    }
+
+    /// "Reset to Same Folder…": the GIFs and memes go back into the preferences folder.
+    /// Settings asks you to type "reset" first (D19).
+    func useSameMediaFolder() {
+        useMediaFolder(store.folder)
+    }
+
+    /// The red line of a failed move: the reason of the folder move, or the general text.
+    static func mediaMoveText(_ error: Error) -> String {
+        switch error {
+        case is MediaFolder.DifferentFile, is MediaFolder.BadCopy, is MediaFolder.Missing:
+            return "\(mediaNotMovedText) \(error.localizedDescription)"
+        default:
+            return mediaNotMovedText
+        }
+    }
+
+    // MARK: The KLIPY key (D2 and D14 of YAZ-2919)
+
+    /// Enter, a click outside the box, or a close of the window: the box goes into this Mac's Keychain.
+    /// An empty box removes the key. The same key again changes nothing.
+    func saveKlipyKey() {
+        let key = KlipyKey.clean(klipyKeyText)
+        if klipyKeyText != key { klipyKeyText = key }
+        guard key != (keyStore.read() ?? "") else {
+            klipyKeyProblem = nil
+            return
+        }
+        do {
+            try keyStore.write(key)
+        } catch {
+            klipyKeyProblem = SettingsModel.klipyKeyNotSavedText
+            return
+        }
+        klipyKeyProblem = nil
+        hasKlipyKey = !key.isEmpty
+        onKlipyKeyChanged()
+    }
+
+    /// "Get a free key": the Partner Panel of KLIPY.
+    func openKlipyKeyPage() {
+        openURL(SettingsModel.klipyKeyURL)
     }
 
     // MARK: Start at login
@@ -271,6 +397,9 @@ final class SettingsModel: ObservableObject {
         let isMissing = !chosen.isEmpty
             && store.folder.standardizedFileURL.path != URL(fileURLWithPath: chosen).standardizedFileURL.path
         folderProblem = folderWriteProblem ?? (isMissing ? PreferencesFolder.missingText : nil)
+        mediaFolderIsSame = prefs.mediaFolder.isEmpty
+        mediaFolderPath = library.mediaFolder.path
+        mediaFolderProblem = mediaMoveProblem ?? (library.mediaFolderIsMissing ? MediaFolder.missingText : nil)
     }
 
     // MARK: Hidden from Your most used (D15)
@@ -292,11 +421,12 @@ final class SettingsModel: ObservableObject {
 
     // MARK: Type to confirm (D19)
 
-    /// The two buttons that you must confirm by typing a word.
+    /// The buttons that you must confirm by typing a word.
     enum Danger: Equatable {
-        case reset, forget
+        /// "Reset to Mac Default Folder…", "Forget learned words…", "Reset to Same Folder…" (D14 of YAZ-2919).
+        case reset, forget, resetMedia
         /// The word to type.
-        var word: String { self == .reset ? "reset" : "forget" }
+        var word: String { self == .forget ? "forget" : "reset" }
     }
 
     var isConfirmingForget: Bool { confirming == .forget }
@@ -323,6 +453,7 @@ final class SettingsModel: ObservableObject {
         switch danger {
         case .reset: useThisMacOnly()
         case .forget: forgetWords()
+        case .resetMedia: useSameMediaFolder()
         }
     }
 
