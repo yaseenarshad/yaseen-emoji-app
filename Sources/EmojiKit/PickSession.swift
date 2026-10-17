@@ -692,6 +692,8 @@ final class PickSession {
     /// With a search: "Yours", then "From KLIPY". No match anywhere: the line, then the sections of no search.
     private func buildTiles(_ kind: ItemKind, into grid: inout Grid) -> Int? {
         let entries = tiles(kind)
+        // D4 of YAZ-2919: the tiles of your files are grey, and search and KLIPY still work.
+        if library.mediaFolderIsMissing { grid.lines.append(.title(MediaFolder.missingText)) }
         func addMostUsedAndAll() {
             let most = Search.mostUsed(of: entries + onlineEntries(kind, keys: Array(store.you.uses.keys)), you: store.you,
                                        limit: PickSession.tileMostUsedLimit)
