@@ -38,10 +38,10 @@ Maybe you know these moments:
 - You saved a great meme last month. Now you can't find it, because no app searches the words in a picture.
 
 <p align="center">
-  <img src="docs/assets/compare.png" width="860" alt="A comparison of Slack, Telegram, WhatsApp, iMessage and Yaseen Emoji. Six rows: the same favourites in every app; one hotkey, from any app; emojis, GIFs and memes in one place; learns your words from each pick; your own memes, found by the text in them; syncs between your Macs through your own folder. Slack, Telegram, WhatsApp and iMessage have a cross in each row: their favourites are only inside their own app, and they have no meme search. Yaseen Emoji has a tick in each row.">
+  <img src="docs/assets/compare.png" width="860" alt="A comparison of the pickers inside Slack, Telegram, WhatsApp and iMessage with Yaseen Emoji. Works in every app: only Yaseen Emoji; each other picker works only inside its own app. The same favourites everywhere: only Yaseen Emoji. Learns the words you type: only Yaseen Emoji; the others keep a recent list only. Emoji search by word, GIF search (Slack with the GIPHY app), recently used, and free: all five.">
 </p>
 
-<p align="center"><sub>Slack, Telegram, WhatsApp and iMessage are their Mac apps. Each cross was checked on the help pages of that product on 16 Oct 2026.</sub></p>
+<p align="center"><sub>Slack, Telegram, WhatsApp and iMessage are the emoji and GIF pickers inside their Mac apps, as their help pages describe them on 16 Oct 2026. Slack shows GIFs when a workspace adds the GIPHY app.</sub></p>
 
 ## The answer
 
