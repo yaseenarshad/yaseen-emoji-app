@@ -31,6 +31,8 @@ struct AppParts {
     var klipyFolder: URL
     /// Makes the search panel on the screen for the session.
     var makePanel: (PickSession) -> PickPanel
+    /// The copy and check of a folder move in Settings: off the main thread in the app, at once in a test.
+    var fileWork: FileWork
 
     static func real() -> AppParts {
         AppParts(
@@ -49,7 +51,8 @@ struct AppParts {
             cacheFolder: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Yaseen Emoji", isDirectory: true),
             klipyFolder: YouStore.defaultFolder.appendingPathComponent("klipy", isDirectory: true),
-            makePanel: { SearchPanelController(session: $0) }
+            makePanel: { SearchPanelController(session: $0) },
+            fileWork: BackgroundFileWork()
         )
     }
 }
@@ -127,7 +130,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         klipy = KlipyResults(keys: parts.klipyKey, session: parts.onlineSession, pasteFiles: pasteFiles,
                              keptFiles: KlipyFiles(folder: parts.klipyFolder), stills: thumbnails.cache, later: parts.later)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
-                                 folders: folders, library: library, keyStore: parts.klipyKey)
+                                 folders: folders, library: library, keyStore: parts.klipyKey, fileWork: parts.fileWork)
     }
 
     /// Starts the app with the real hotkey center and the real login item. It does not return.

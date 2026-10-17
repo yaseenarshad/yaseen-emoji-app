@@ -8,7 +8,7 @@ import Testing
 @Suite struct SettingsPagesTests {
     private func makeModel(_ rig: PickRig, prefs: Prefs? = nil, hotKeys: FakeHotKeyRegistrar = FakeHotKeyRegistrar()) -> SettingsModel {
         let model = SettingsModel(prefs: prefs ?? rig.prefs, hotKeys: hotKeys, loginItem: FakeLoginItem(), access: rig.access,
-                                  store: rig.store, folders: rig.folders, library: rig.library, keyStore: rig.klipyKey)
+                                  store: rig.store, folders: rig.folders, library: rig.library, keyStore: rig.klipyKey, fileWork: rig.fileWork)
         model.registerHotKey()
         return model
     }
@@ -20,7 +20,7 @@ import Testing
     @Test func eachPageListsItsRows() {
         #expect(SettingsPage.allCases.map(\.title) == ["General", "Enter and paste", "GIFs and memes", "Your history", "Sync folder"])
         #expect(SettingsPage.general.rows == [.hotKey, .defaultTone, .startAtLogin, .accessibility])
-        #expect(SettingsPage.enterAndPaste.rows == [.enterEmojis, .enterGIFs, .enterMemes])
+        #expect(SettingsPage.enterAndPaste.rows == [.afterEnter, .enterEmojis, .enterGIFs, .enterMemes])
         #expect(SettingsPage.gifsAndMemes.rows == [.klipyKey, .klipyGIFs, .klipyMemes, .mediaFolder])
         #expect(SettingsPage.history.rows == [.hiddenFromMostUsed, .forgetLearnedWords])
         #expect(SettingsPage.syncFolder.rows == [.preferencesFolder])

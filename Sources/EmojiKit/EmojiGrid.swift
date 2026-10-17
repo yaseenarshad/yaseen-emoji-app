@@ -508,14 +508,14 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         window?.performDrag(with: event)
     }
 
-    /// A click with no move is the same as Enter (D8).
+    /// A click with no move is the same as Enter (D8; D20 of YAZ-2919).
     override func mouseUp(with event: NSEvent) {
         defer {
             pressed = nil
             downPoint = nil
         }
         guard let pressed, metrics.index(at: convert(event.locationInWindow, from: nil)) == pressed else { return }
-        session.pick(stayOpen: false)
+        session.click()
     }
 
     /// The right-click menu: the items of `PickSession.menuActions(at:)` (D15, D17; D13 of YAZ-2919).

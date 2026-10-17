@@ -64,6 +64,7 @@ struct SettingsView: View {
         case .defaultTone: toneRow
         case .startAtLogin: startAtLoginRow
         case .accessibility: accessibilityRow
+        case .afterEnter: afterEnterRow
         case .enterEmojis: enterRow(.emoji)
         case .enterGIFs: enterRow(.gif)
         case .enterMemes: enterRow(.meme)
@@ -97,6 +98,24 @@ struct SettingsView: View {
             if let problem = model.hotKeyProblem {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
+        }
+    }
+
+    /// D20 of YAZ-2919: after a paste, the panel stays open or closes. The grey line tells what the keys do now.
+    private var afterEnterRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("After Enter", selection: Binding(
+                get: { model.afterEnter },
+                set: { model.setAfterEnter($0) }
+            )) {
+                ForEach(AfterEnter.allCases, id: \.self) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            Text(model.afterEnterText)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -189,7 +208,7 @@ struct SettingsView: View {
                         .truncationMode(.middle)
                         .help(model.folderPath)
                     Button("Show in Finder") { model.showPreferencesFolder() }
-                        .disabled(model.folderIsMissing)
+                        .disabled(model.folderIsMissing || model.moving != nil)
                 }
             }
             HStack {
@@ -209,9 +228,11 @@ struct SettingsView: View {
                 }
                 Button("Set preferences folder…") { model.choosePreferencesFolder() }
             }
+            .disabled(model.moving != nil)
             if model.confirming == .reset {
                 confirmBox(SettingsModel.resetQuestion, button: "Reset")
             }
+            if model.moving == .preferences { movingLine }
             if let problem = model.folderProblem {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
@@ -229,7 +250,7 @@ struct SettingsView: View {
                         .truncationMode(.middle)
                         .help(model.mediaFolderPath)
                     Button("Show in Finder") { model.showMediaFolder() }
-                        .disabled(model.mediaFolderIsMissing)
+                        .disabled(model.mediaFolderIsMissing || model.moving != nil)
                 }
             }
             Text(model.mediaFolderIsSame ? SettingsModel.mediaSameText : SettingsModel.mediaDifferentText)
@@ -243,12 +264,22 @@ struct SettingsView: View {
                 }
                 Button("Set GIFs and memes folder…") { model.chooseMediaFolder() }
             }
+            .disabled(model.moving != nil)
             if model.confirming == .resetMedia {
                 confirmBox(SettingsModel.mediaResetQuestion, button: "Reset")
             }
+            if model.moving == .media { movingLine }
             if let problem = model.mediaFolderProblem {
                 Text(problem).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Item 16 of YAZ-2929: the line of a folder row while its files move off the main thread.
+    private var movingLine: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(SettingsModel.movingText).font(.callout).foregroundStyle(.secondary)
         }
     }
 

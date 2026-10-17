@@ -169,14 +169,15 @@ import Testing
         rig.session.setQuery("rocket")
         try rig.select("🚀")
         rig.session.enter(shift: true)
-        // Copy only does not hide the panel for a ⌘V.
-        #expect(rig.panel.calls == ["show"])
+        // Copy only does not step aside for a ⌘V. Shift+Enter closes too: you paste it yourself (D20 of YAZ-2919).
+        #expect(rig.panel.calls == ["show", "hide"] && !rig.session.isOpen)
         rig.later.runAll()
         #expect(rig.keys.sent.isEmpty)
         #expect(rig.clipboard.contents == .text("🚀"))
 
         rig.access.isTrusted = true
         rig.access.secureInputIsOn = true
+        rig.session.open()
         rig.session.setQuery("fire")
         try rig.select("🔥")
         rig.session.enter(shift: false)

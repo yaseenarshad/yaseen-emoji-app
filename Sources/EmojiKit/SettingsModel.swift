@@ -1,8 +1,31 @@
 import AppKit
 import Carbon.HIToolbox
 
+/// Runs the slow file work of Settings, the copy and check of a folder move, and gives the result on the main
+/// thread (item 16 of the v0.2 polish, YAZ-2929). The app runs the work off the main thread. A test runs it at once,
+/// or when the test wants, so no test waits.
+@MainActor
+protocol FileWork: AnyObject {
+    /// `done` gets nil after the work, or the error that it threw.
+    func run(_ work: @escaping @Sendable () throws -> Void, done: @escaping @MainActor (Error?) -> Void)
+}
+
+/// The app's `FileWork`: a detached task, then `done` on the main actor.
+@MainActor
+final class BackgroundFileWork: FileWork {
+    func run(_ work: @escaping @Sendable () throws -> Void, done: @escaping @MainActor (Error?) -> Void) {
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { Result { try work() } }.value
+            switch result {
+            case .success: done(nil)
+            case .failure(let error): done(error)
+            }
+        }
+    }
+}
+
 /// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16;
-/// D4, D14, D16 and D19 of YAZ-2919).
+/// D4, D14, D16, D19 and D20 of YAZ-2919).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -24,6 +47,8 @@ final class SettingsModel: ObservableObject {
     static let mediaResetQuestion = "Your GIFs and memes move back into the preferences folder. The app copies each file, checks it, then removes the old copy."
     static let mediaNotMovedText = "Yaseen Emoji can't move your GIFs and memes into this folder. They stay in the old folder."
     static let folderNotMadeText = "Yaseen Emoji can't make this folder."
+    /// The line of the folder row while its files move (item 16 of YAZ-2929).
+    static let movingText = "Moving your files…"
     static let klipyKeyNote = "Without a key, you see only your own GIFs and memes."
     static let klipyKeyNotSavedText = "Yaseen Emoji can't keep the key in the Keychain."
     static let klipyKeySavedNote = "Saved in this Mac's Keychain. Use Change… or Remove… to edit it."
@@ -41,6 +66,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var isRecording = false
     /// The red line below the hotkey row.
     @Published private(set) var hotKeyProblem: String?
+    /// "After Enter" (D20 of YAZ-2919): the panel stays open after a paste, or closes.
+    @Published private(set) var afterEnter: AfterEnter
     /// "When you press Enter" (D16 of YAZ-2919): the mode and "Keep it on the clipboard after a paste" of each kind.
     @Published private(set) var enter: [PickKind: EnterChoice] = [:]
     @Published private(set) var defaultTone: String
@@ -73,6 +100,9 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var mediaFolderIsMissing = false
     /// The red line below the GIFs and memes folder: the folder is missing, or a move failed.
     @Published private(set) var mediaFolderProblem: String?
+    /// The folder row whose files move now, or nil (item 16 of YAZ-2929). The row shows `movingText`, and the buttons
+    /// of both folder rows are off, so a second move can't start in the middle of the first.
+    @Published private(set) var moving: FolderRow?
     /// The text of the KLIPY key box (D14 of YAZ-2919): what you typed. It never holds the saved key.
     @Published var klipyKeyText = ""
     /// True while the box is open after "Change…". A saved key is locked until then (Yaseen, 16 Oct 2026).
@@ -112,13 +142,15 @@ final class SettingsModel: ObservableObject {
     /// The list of GIFs and memes. It moves with the preferences folder (D3, D4 of YAZ-2919).
     private let library: LibraryStore
     private let keyStore: KeyStore
+    /// The copy and check of a folder move, off the main thread in the app.
+    private let fileWork: FileWork
     /// The red line of a folder that the app could not write. The next refresh keeps it.
     private var folderWriteProblem: String?
     /// The red line of a move of the GIFs and memes that failed. The next refresh keeps it.
     private var mediaMoveProblem: String?
 
     init(prefs: Prefs, hotKeys: HotKeyRegistering, loginItem: LoginItem, access: PasteAccess, store: YouStore,
-         folders: PreferencesFolder, library: LibraryStore, keyStore: KeyStore) {
+         folders: PreferencesFolder, library: LibraryStore, keyStore: KeyStore, fileWork: FileWork) {
         self.prefs = prefs
         self.hotKeys = hotKeys
         self.loginItem = loginItem
@@ -127,7 +159,9 @@ final class SettingsModel: ObservableObject {
         self.folders = folders
         self.library = library
         self.keyStore = keyStore
+        self.fileWork = fileWork
         page = prefs.settingsPage
+        afterEnter = prefs.afterEnter
         hotKey = prefs.hotKey
         defaultTone = prefs.defaultTone
         klipyGIFs = prefs.searchesKlipy(.gif)
@@ -201,7 +235,27 @@ final class SettingsModel: ObservableObject {
         return true
     }
 
-    // MARK: When you press Enter (D2; D16 of YAZ-2919) and the default skin tone (D9)
+    // MARK: When you press Enter (D2; D16, D20 of YAZ-2919) and the default skin tone (D9)
+
+    /// "After Enter: Stay open | Close". The other Macs get it through this Mac's history file (D16).
+    func setAfterEnter(_ value: AfterEnter) {
+        guard value != prefs.afterEnter else { return }
+        prefs.afterEnter = value
+        prefs.afterEnterChangedAt = store.setAfterEnter(value.rawValue)
+        afterEnter = value
+    }
+
+    /// The grey line below "After Enter".
+    var afterEnterText: String { SettingsModel.afterEnterText(afterEnter) }
+
+    static func afterEnterText(_ value: AfterEnter) -> String {
+        switch value {
+        case .stayOpen:
+            return "Enter pastes, and the panel stays open for the next one. Shift+Enter pastes and closes. Esc closes."
+        case .close:
+            return "Enter pastes and closes. Shift+Enter pastes, and the panel stays open."
+        }
+    }
 
     /// What Enter does for one kind.
     struct EnterChoice: Equatable {
@@ -272,6 +326,13 @@ final class SettingsModel: ObservableObject {
     /// and the next change of the files tries again. The app calls this after a load or a reload.
     func applySynced() {
         let synced = store.you.settings
+        // An old file has no `afterEnter`: this Mac keeps its value, or the start value Stay open.
+        if let after = synced.afterEnter, isNewer(after.at, than: prefs.afterEnterChangedAt),
+           let value = AfterEnter(rawValue: after.value) {
+            prefs.afterEnter = value
+            prefs.afterEnterChangedAt = after.at
+            afterEnter = value
+        }
         for kind in PickKind.allCases {
             // A kind with no value of its own uses the v0.1 `pickMode`, so an old file still gives its mode.
             if let mode = synced.pickMode(kind), isNewer(mode.at, than: prefs.pickModeChangedAt(kind)),
@@ -337,9 +398,11 @@ final class SettingsModel: ObservableObject {
 
     /// Writes this Mac's history file and list into `folder`, then uses the folder. The files of the other Macs
     /// that are already there count at once, and their newer settings apply. The old files stay.
-    /// When the GIFs and memes are in the preferences folder, they move too (D4 of YAZ-2919). If that move fails,
-    /// they stay in the old folder, and the GIFs and memes folder becomes the old folder, so no file is lost.
+    /// When the GIFs and memes are in the preferences folder, they move too (D4 of YAZ-2919), off the main thread.
+    /// During that move, the GIFs and memes folder is the old folder, where all the files still are. If the move fails,
+    /// they stay there, and the GIFs and memes folder stays the old folder, so no file is lost.
     func usePreferencesFolder(_ folder: URL) {
+        guard moving == nil else { return }
         let isDefault = folder.standardizedFileURL.path == folders.defaultFolder.standardizedFileURL.path
         let oldHistory = store.url
         do {
@@ -361,13 +424,16 @@ final class SettingsModel: ObservableObject {
         prefs.preferencesFolder = isDefault ? "" : folder.path
         folderWriteProblem = nil
         if prefs.mediaFolder.isEmpty {
-            let oldMedia = library.mediaFolder
-            do {
-                try library.useMediaFolder(folder)
-                mediaMoveProblem = nil
-            } catch {
-                prefs.mediaFolder = oldMedia.path
-                mediaMoveProblem = SettingsModel.mediaMoveText(error)
+            prefs.mediaFolder = library.mediaFolder.path
+            moveMedia(to: folder, row: .preferences) { [weak self] error in
+                guard let self else { return }
+                if let error {
+                    mediaMoveProblem = SettingsModel.mediaMoveText(error)
+                } else {
+                    prefs.mediaFolder = ""
+                    mediaMoveProblem = nil
+                }
+                refresh()
             }
         }
         applySynced()
@@ -417,17 +483,36 @@ final class SettingsModel: ObservableObject {
     /// Moves `gifs/` and `memes/` into `folder` (copy, check, then remove the old copies), then uses it.
     /// The pref changes only after a move with no error. The preferences folder itself is the pref "".
     func useMediaFolder(_ folder: URL) {
+        guard moving == nil else { return }
         let isSame = folder.standardizedFileURL.path == store.folder.standardizedFileURL.path
-        do {
-            try library.useMediaFolder(folder)
-        } catch {
-            mediaMoveProblem = SettingsModel.mediaMoveText(error)
+        moveMedia(to: folder, row: .media) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                mediaMoveProblem = SettingsModel.mediaMoveText(error)
+            } else {
+                prefs.mediaFolder = isSame ? "" : folder.path
+                mediaMoveProblem = nil
+            }
             refresh()
-            return
         }
-        prefs.mediaFolder = isSame ? "" : folder.path
-        mediaMoveProblem = nil
-        refresh()
+    }
+
+    /// The two folder rows (item 16 of YAZ-2929).
+    enum FolderRow: Equatable {
+        case preferences, media
+    }
+
+    /// Copies and checks the files of `gifs/` and `memes/` off the main thread (`MediaFolder.move`). Then, on the main
+    /// actor, the list uses the new folder after a move with no error, and `done` gets the result.
+    private func moveMedia(to folder: URL, row: FolderRow, done: @escaping @MainActor (Error?) -> Void) {
+        let old = library.mediaFolder
+        moving = row
+        fileWork.run({ try MediaFolder.move(from: old, to: folder) }, done: { [weak self] error in
+            guard let self else { return }
+            if error == nil { library.mediaFolderMoved(to: folder) }
+            moving = nil
+            done(error)
+        })
     }
 
     /// "Reset to Same Folder…": the GIFs and memes go back into the preferences folder.
@@ -643,9 +728,10 @@ final class SettingsModel: ObservableObject {
 
     func askToForget() { ask(.forget) }
 
-    /// True when the box has the word, in any case, with no extra spaces.
+    /// True when the box has the word, in any case, with no extra spaces. A folder reset also waits for a move that runs.
     var canConfirm: Bool {
         guard let confirming else { return false }
+        if moving != nil, confirming == .reset || confirming == .resetMedia { return false }
         return typedConfirmation.trimmingCharacters(in: .whitespaces).lowercased() == confirming.word
     }
 

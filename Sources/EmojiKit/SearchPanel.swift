@@ -310,8 +310,8 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         panel.orderOut(nil)
     }
 
-    func comeBack() {
-        takeKeyboard()
+    func comeBack(selectQuery: Bool) {
+        takeKeyboard(selectAll: selectQuery)
         isSteppingAside = false
         grid.startPlaying()
         updatePreview()
@@ -345,13 +345,14 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
 
     /// `orderFrontRegardless` does not need the active app, and a panel that does not activate
     /// the app can take the keyboard without it (Screendraw).
-    private func takeKeyboard() {
+    /// The cursor goes at the end of the text, or with `selectAll` all the text is selected (D20 of YAZ-2919).
+    private func takeKeyboard(selectAll: Bool = false) {
         panel.orderFrontRegardless()
         panel.makeKey()
         panel.makeFirstResponder(field)
-        // The cursor at the end, not all the text selected.
         if let editor = field.currentEditor() {
-            editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0)
+            let length = (field.stringValue as NSString).length
+            editor.selectedRange = selectAll ? NSRange(location: 0, length: length) : NSRange(location: length, length: 0)
         }
         panel.invalidateShadow()
     }
@@ -404,7 +405,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     }
 
     /// A click outside, or a different window takes the keyboard: the panel closes (D7).
-    /// Not for a ⌘V of Shift+Enter, and not while the right-click menu is open.
+    /// Not for the ⌘V of a pick that stays open (D20 of YAZ-2919), and not while the right-click menu is open.
     func windowDidResignKey(_ notification: Notification) {
         guard !isSteppingAside, !grid.menuIsOpen else { return }
         session.close()
