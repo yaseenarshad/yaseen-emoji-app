@@ -235,7 +235,10 @@ import UniformTypeIdentifiers
         #expect(session.items.first?.key == long.key)
         // A title word, and a prefix of it.
         session.setQuery("cat")
-        #expect(session.items.map(\.key) == [long.key])
+        #expect(session.items.first?.key == long.key)
+        // D17: the other memes follow under "All your memes".
+        #expect(session.lines.first == .title(PickSession.yoursTitle) && session.lines.dropFirst().first == .cells(0..<1))
+        #expect(session.lines.contains(.title(PickSession.allYourTitle(.meme))) && session.items.count == 4)
         session.setQuery("fin")
         #expect(session.items.count == 4)
 

@@ -816,6 +816,11 @@ final class PickSession {
         "No match for \"\(query)\"."
     }
 
+    /// "All your GIFs" or "All your memes": the rest of your items below the results of a search (D17 of YAZ-2919).
+    nonisolated static func allYourTitle(_ kind: ItemKind) -> String {
+        kind == .gif ? "All your GIFs" : "All your memes"
+    }
+
     /// "Your GIFs" or "Your memes".
     nonisolated static func yourTitle(_ kind: ItemKind) -> String {
         kind == .gif ? "Your GIFs" : "Your memes"
@@ -898,7 +903,8 @@ final class PickSession {
     }
 
     /// The GIFs or Memes tab (D11 of YAZ-2919). With no search: "Your most used" (6), then "Your GIFs", newest first.
-    /// With a search: "Yours", then "From KLIPY". No match anywhere: the line, then the sections of no search.
+    /// With a search: "Yours", then "From KLIPY", then "All your GIFs" (the rest, D17). No match anywhere: the line,
+    /// then the sections of no search.
     private func buildTiles(_ kind: ItemKind, into grid: inout Grid) -> Int? {
         let entries = tiles(kind)
         if let notice { grid.lines.append(.title(notice)) }
@@ -938,6 +944,11 @@ final class PickSession {
             grid.addSection(PickSession.onlineTitle, fromOnline.items.map(PickItem.online))
             if let line = fromOnline.line { grid.lines.append(.title(line)) }
         }
+        // D17 of YAZ-2919: the rest of your items, newest first, so a pick or "Add a word…" teaches this text
+        // to an item that the search did not find.
+        let found = Set(yours.map(\.item.key))
+        let rest = entries.filter { !found.contains($0.item.key) }
+        if !rest.isEmpty { grid.addSection(PickSession.allYourTitle(kind), rest.map(\.item)) }
         return 0
     }
 

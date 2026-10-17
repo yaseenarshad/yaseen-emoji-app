@@ -75,8 +75,16 @@ import Testing
         #expect(session.items.map(\.key) == [other.key, gif.key])
 
         session.setQuery("dan")
-        #expect(session.lines == [.title(PickSession.yoursTitle), .cells(0..<1)])
-        #expect(session.items == [.own(gif)] && session.selection == 0)
+        // D17 of YAZ-2919: the GIF that the search did not find follows under "All your GIFs".
+        #expect(session.lines == [.title(PickSession.yoursTitle), .cells(0..<1), .title("All your GIFs"), .cells(1..<2)])
+        #expect(session.items == [.own(gif), .own(other)] && session.selection == 0)
+        // "Add a word…" on that GIF teaches it the search text, so the next search finds it.
+        session.select(1)
+        session.perform(.addWord)
+        session.setQuery("")
+        session.setQuery("dan")
+        #expect(Set(session.items.prefix(2).map(\.key)) == Set([gif.key, other.key]))
+        #expect(session.lines.first == .title(PickSession.yoursTitle) && session.lines.dropFirst().first == .cells(0..<2))
 
         session.setQuery("party")
         #expect(session.lines.first == .title(PickSession.noTileMatchTitle("party")))
