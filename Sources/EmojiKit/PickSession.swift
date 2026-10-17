@@ -453,6 +453,22 @@ final class PickSession {
         tab == .emoji ? [] : [.addNew]
     }
 
+    /// Runs one item of the right-click menu on the item with the blue box. The grid calls it.
+    func perform(_ action: MenuAction) {
+        if action == .addNew { return addNew() }
+        guard let item = selectedItem else { return }
+        switch action {
+        case .addWord: addWord(for: item)
+        case .copyOnly: copyOnly()
+        case .hideFromMostUsed: hideFromMostUsed(item: item)
+        case .showInFinder: showInFinder(item)
+        case .moveToTrash: moveToTrash(item)
+        case .saveToYours: saveToYours(item)
+        case .removeFromYours: removeFromYours(item)
+        case .addNew: addNew()
+        }
+    }
+
     /// "Hide from Your most used" (D15): the emoji leaves the section, and the next emoji fills its place.
     /// The panel stays open. The search still ranks the emoji the same.
     func hideFromMostUsed(_ emoji: Emoji) {

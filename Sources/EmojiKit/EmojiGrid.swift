@@ -378,40 +378,44 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         session.pick(stayOpen: false)
     }
 
-    /// The right-click menu: the items of `PickSession.menuActions(at:)` (D15, D17).
+    /// The right-click menu: the items of `PickSession.menuActions(at:)` (D15, D17; D13 of YAZ-2919).
+    /// On a gap or a title of the GIFs and Memes tabs: "Add a GIF or meme…" (D12 of YAZ-2919).
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let index = metrics.index(at: convert(event.locationInWindow, from: nil)) else { return nil }
-        session.select(index)
+        let actions: [PickSession.MenuAction]
+        if let index = metrics.index(at: convert(event.locationInWindow, from: nil)) {
+            session.select(index)
+            actions = session.menuActions(at: index)
+        } else {
+            actions = session.menuActionsOutsideItems
+        }
+        guard !actions.isEmpty else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        for action in session.menuActions(at: index) {
-            let selector: Selector
-            switch action {
-            case .addWord: selector = #selector(addWord)
-            case .copyOnly: selector = #selector(copyOnly)
-            case .hideFromMostUsed: selector = #selector(hideFromMostUsed)
-            default: continue
-            }
-            let item = NSMenuItem(title: action.title, action: selector, keyEquivalent: "")
+        for action in actions {
+            if action == .addNew, !menu.items.isEmpty { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: action.title, action: #selector(runAction(_:)), keyEquivalent: "")
             item.target = self
+            item.representedObject = MenuActionBox(action)
             menu.addItem(item)
         }
         return menu
     }
 
-    @objc private func addWord() {
-        guard let item = session.selectedItem else { return }
-        session.addWord(for: item)
-    }
-
-    @objc private func copyOnly() { session.copyOnly() }
-
-    @objc private func hideFromMostUsed() {
-        guard let item = session.selectedItem else { return }
-        session.hideFromMostUsed(item: item)
+    @objc private func runAction(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? MenuActionBox else { return }
+        session.perform(box.action)
     }
 
     func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
     func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }
+}
+
+/// One action of the right-click menu, in `NSMenuItem.representedObject`.
+final class MenuActionBox: NSObject {
+    let action: PickSession.MenuAction
+
+    init(_ action: PickSession.MenuAction) {
+        self.action = action
+    }
 }
