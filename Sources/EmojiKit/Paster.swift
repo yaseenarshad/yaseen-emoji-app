@@ -51,7 +51,10 @@ protocol Clipboard: AnyObject {
 /// Posts a key press to the system. A test uses a fake one: no test posts a key event.
 @MainActor
 protocol KeySender: AnyObject {
+    /// To the window with the keyboard (the session event tap).
     func post(_ combo: HotKeyCombo)
+    /// To one process, also when a different window has the keyboard (`CGEvent.postToPid`, D21 of YAZ-2919).
+    func post(_ combo: HotKeyCombo, toProcess pid: pid_t)
 }
 
 /// What the app may do with the keyboard of other apps.
@@ -90,7 +93,8 @@ final class Paster {
     /// ⌘V: key code 9 with Command. The event has only this flag, so a Shift that the user
     /// still holds does not make it ⌘⇧V.
     static let pasteKey = HotKeyCombo(keyCode: UInt32(kVK_ANSI_V), modifiers: .command)
-    /// From the write to the ⌘V. The panel is hidden by then, so the ⌘V goes to the app in front.
+    /// From the write to the ⌘V. The app in front has the keyboard by then (D21 of YAZ-2919), so the ⌘V goes to it.
+    /// The fallback of D21 waits this time one more time, after the panel hid.
     static let postDelay: TimeInterval = 0.05
     /// From the ⌘V to the restore of the old clipboard (D2).
     static let restoreDelay: TimeInterval = 0.3
@@ -131,8 +135,10 @@ final class Paster {
     /// * No `keep` (D2): the old clipboard comes back later, but only if the clipboard is still the app's own.
     ///   Then a new copy of the user in the wait stays. A file waits 1.0 s for the restore, a text 0.3 s.
     /// A file that cannot be read changes nothing.
+    /// `handOff` runs right before the ⌘V and tells where the ⌘V goes (D21 of YAZ-2919). The panel gives it.
     /// `afterPaste` runs when the panel can take the keyboard again. With no paste, it runs at once.
-    func deliver(_ clip: Clip, paste: Bool, keep: Bool = false, afterPaste: @escaping @MainActor () -> Void = {}) {
+    func deliver(_ clip: Clip, paste: Bool, keep: Bool = false, handOff: @escaping PasteHandOff = { .keyWindow },
+                 afterPaste: @escaping @MainActor () -> Void = {}) {
         let restores = paste && !keep
         // The clipboard of the user, for the restore. A second pick in the wait: the one that the first pick saved.
         var saved: ClipboardContents?
@@ -159,8 +165,8 @@ final class Paster {
             afterPaste()
             return
         }
-        later.run(after: Paster.postDelay) { [self] in
-            keys.post(Paster.pasteKey)
+        func post(toProcess pid: pid_t?) {
+            if let pid { keys.post(Paster.pasteKey, toProcess: pid) } else { keys.post(Paster.pasteKey) }
             later.run(after: Paster.comeBackDelay, afterPaste)
             guard restores else { return }
             later.run(after: wait) { [self] in
@@ -168,6 +174,13 @@ final class Paster {
                 guard let pending, pending.own == own else { return }
                 self.pending = nil
                 if clipboard.changeCount == own { clipboard.restore(pending.saved) }
+            }
+        }
+        later.run(after: Paster.postDelay) { [self] in
+            switch handOff() {
+            case .keyWindow: post(toProcess: nil)
+            case .keyWindowAfterHide: later.run(after: Paster.postDelay) { post(toProcess: nil) }
+            case .process(let pid): post(toProcess: pid)
             }
         }
     }
@@ -224,16 +237,25 @@ final class SystemClipboard: Clipboard {
 @MainActor
 final class SystemKeySender: KeySender {
     func post(_ combo: HotKeyCombo) {
+        for event in SystemKeySender.events(combo) { event.post(tap: .cgSessionEventTap) }
+    }
+
+    func post(_ combo: HotKeyCombo, toProcess pid: pid_t) {
+        for event in SystemKeySender.events(combo) { event.postToPid(pid) }
+    }
+
+    /// The key down and the key up of `combo`, with only its own modifier flags.
+    private static func events(_ combo: HotKeyCombo) -> [CGEvent] {
         let source = CGEventSource(stateID: .combinedSessionState)
         var flags: CGEventFlags = []
         if combo.modifiers.contains(.command) { flags.insert(.maskCommand) }
         if combo.modifiers.contains(.shift) { flags.insert(.maskShift) }
         if combo.modifiers.contains(.option) { flags.insert(.maskAlternate) }
         if combo.modifiers.contains(.control) { flags.insert(.maskControl) }
-        for isDown in [true, false] {
+        return [true, false].compactMap { isDown in
             let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(combo.keyCode), keyDown: isDown)
             event?.flags = flags
-            event?.post(tap: .cgSessionEventTap)
+            return event
         }
     }
 }

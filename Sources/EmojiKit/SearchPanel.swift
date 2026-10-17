@@ -25,6 +25,8 @@ final class SearchPanel: NSPanel {
     var onCopy: () -> Void = {}
     /// ⌘1, ⌘2, ⌘3: the Emoji, GIFs or Memes tab (D10 of YAZ-2919). The number is 0, 1 or 2.
     var onTab: (Int) -> Void = { _ in }
+    /// While true, the panel refuses the keyboard, so the app in front keeps it for the ⌘V (D21 of YAZ-2919).
+    var refusesKey = false
 
     init(size: NSSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size),
@@ -48,8 +50,8 @@ final class SearchPanel: NSPanel {
         isMovableByWindowBackground = true
     }
 
-    // A borderless window refuses the keyboard by default. The search box needs it.
-    override var canBecomeKey: Bool { true }
+    // A borderless window refuses the keyboard by default. The search box needs it, except for a ⌘V (D21 of YAZ-2919).
+    override var canBecomeKey: Bool { !refusesKey }
     override var canBecomeMain: Bool { false }
 
     /// ⌘C is "Copy only", ⌘1 to ⌘3 are the tabs, and the other edit keys go to the search box (`EditKeys`).
@@ -153,7 +155,7 @@ final class SearchFieldEditor: NSTextView {
 /// `PickSession`: it turns keys and clicks into calls of the session, and shows what the session holds.
 /// One panel for the life of the app. It hides and shows again, so it opens fast.
 @MainActor
-final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSTextFieldDelegate {
+final class SearchPanelController: NSObject, PickPanel, PasteWindow, NSWindowDelegate, NSTextFieldDelegate {
     /// D7: 460 points wide.
     static let width: CGFloat = 460
     static let fieldHeight: CGFloat = 52
@@ -173,11 +175,16 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     private let scrollView = NSScrollView()
     /// The big preview of the meme with the blue box, beside the panel (D15 of YAZ-2919).
     private let preview: MemePreviewController
-    /// True between `stepAside()` and `comeBack()`. The panel loses the keyboard then, but the session stays open.
-    private var isSteppingAside = false
+    private let later: Later
+    /// How a pick that stays open gives the keyboard to the app in front, and takes it back (D21 of YAZ-2919).
+    private lazy var paste = PanelPaste(window: self, later: later) { [weak session] in
+        session?.pasteStrategy ?? .handBack
+    }
 
-    init(session: PickSession) {
+    /// `later`: nil gives `MainQueueLater`.
+    init(session: PickSession, later: Later? = nil) {
         self.session = session
+        self.later = later ?? MainQueueLater()
         panel = SearchPanel(size: NSSize(width: SearchPanelController.width,
                                          height: SearchPanelController.fieldHeight + SearchPanelController.tabBarHeight
                                              + SearchPanelController.gridHeight))
@@ -284,7 +291,9 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     // MARK: PickPanel
 
     func show() {
-        isSteppingAside = false
+        paste.reset()
+        // This app is never the active app, so this is the app behind the panel (D21 of YAZ-2919).
+        paste.frontApp = RunningFrontApp(NSWorkspace.shared.frontmostApplication)
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         if let screen {
@@ -297,24 +306,18 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
 
     /// The GIFs stop with the panel, so a closed panel uses no CPU (D11 update on YAZ-2925).
     func hide() {
-        isSteppingAside = false
+        paste.reset()
         grid.stopPlaying()
         updatePreview()
         panel.orderOut(nil)
     }
 
-    func stepAside() {
-        isSteppingAside = true
-        grid.stopPlaying()
-        updatePreview()
-        panel.orderOut(nil)
+    func makeWayForPaste() -> PasteHandOff {
+        paste.makeWay()
     }
 
     func comeBack(selectQuery: Bool) {
-        takeKeyboard(selectAll: selectQuery)
-        isSteppingAside = false
-        grid.startPlaying()
-        updatePreview()
+        paste.comeBack(selectQuery: selectQuery)
     }
 
     func reload() {
@@ -338,7 +341,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
 
     /// The big preview follows the blue box on the Memes tab, and hides in each other case (`MemePreview.item`).
     private func updatePreview() {
-        let item = MemePreview.item(isOpen: session.isOpen && panel.isVisible, isSteppingAside: isSteppingAside,
+        let item = MemePreview.item(isOpen: session.isOpen && panel.isVisible, isSteppingAside: paste.isHidden,
                                     tab: session.tab, selected: session.selectedItem)
         preview.show(item, beside: panel)
     }
@@ -355,6 +358,30 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
             editor.selectedRange = selectAll ? NSRange(location: 0, length: length) : NSRange(location: length, length: 0)
         }
         panel.invalidateShadow()
+    }
+
+    // MARK: PasteWindow (D21 of YAZ-2919)
+
+    var hasKeyboard: Bool { panel.isKeyWindow }
+
+    var isShown: Bool { panel.isVisible }
+
+    var refusesKeyboard: Bool {
+        get { panel.refusesKey }
+        set { panel.refusesKey = newValue }
+    }
+
+    /// The GIFs stop while the panel is hidden.
+    func hideForPaste() {
+        grid.stopPlaying()
+        panel.orderOut(nil)
+        updatePreview()
+    }
+
+    func showWithKeyboard(selectAll: Bool) {
+        takeKeyboard(selectAll: selectAll)
+        grid.startPlaying()
+        updatePreview()
     }
 
     // MARK: The keys (D8)
@@ -405,9 +432,10 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     }
 
     /// A click outside, or a different window takes the keyboard: the panel closes (D7).
-    /// Not for the ⌘V of a pick that stays open (D20 of YAZ-2919), and not while the right-click menu is open.
+    /// Not while the panel makes way for the ⌘V of a pick that stays open (D20, D21 of YAZ-2919), and not while the
+    /// right-click menu is open.
     func windowDidResignKey(_ notification: Notification) {
-        guard !isSteppingAside, !grid.menuIsOpen else { return }
+        guard !paste.isMakingWay, !grid.menuIsOpen else { return }
         session.close()
     }
 }

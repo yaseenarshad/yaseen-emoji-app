@@ -83,7 +83,16 @@ final class FakeClipboard: Clipboard {
 @MainActor
 final class FakeKeySender: KeySender {
     private(set) var sent: [HotKeyCombo] = []
-    func post(_ combo: HotKeyCombo) { sent.append(combo) }
+    /// The process of each key: nil for the window with the keyboard (the session tap), else the pid (D21 of YAZ-2919).
+    private(set) var targets: [pid_t?] = []
+    func post(_ combo: HotKeyCombo) {
+        sent.append(combo)
+        targets.append(nil)
+    }
+    func post(_ combo: HotKeyCombo, toProcess pid: pid_t) {
+        sent.append(combo)
+        targets.append(pid)
+    }
 }
 
 @MainActor
@@ -129,19 +138,89 @@ final class FakeLater: Later {
     func runAll() { advance(by: 1_000) }
 }
 
-/// The search panel with no window. It keeps the calls of the session.
+/// The window of the search panel for `PanelPaste` (D21 of YAZ-2919), with no window. It keeps its hides and shows.
+@MainActor
+final class FakePasteWindow: PasteWindow {
+    var hasKeyboard = false
+    private(set) var isShown = false
+    var refusesKeyboard = false
+    /// False: a show does not give the panel the keyboard (macOS refuses it).
+    var showTakesKeyboard = true
+    /// "hide" for `hideForPaste`, "show" or "show+select" for `showWithKeyboard`.
+    private(set) var calls: [String] = []
+
+    func hideForPaste() {
+        calls.append("hide")
+        isShown = false
+        hasKeyboard = false
+    }
+
+    func showWithKeyboard(selectAll: Bool) {
+        calls.append(selectAll ? "show+select" : "show")
+        isShown = true
+        hasKeyboard = showTakesKeyboard && !refusesKeyboard
+    }
+
+    /// The panel opens or closes (no paste).
+    func set(open: Bool) {
+        isShown = open
+        hasKeyboard = open
+    }
+}
+
+/// The app in front, with no app. Its `activate()` takes the keyboard from the fake window, or not.
+@MainActor
+final class FakeFrontApp: FrontApp {
+    let processID: pid_t = 4242
+    /// False: macOS refuses the activation, and the panel keeps the keyboard (the D21 fallback).
+    var takesKeyboard = true
+    weak var window: FakePasteWindow?
+    private(set) var activations = 0
+
+    func activate() {
+        activations += 1
+        if takesKeyboard { window?.hasKeyboard = false }
+    }
+}
+
+/// The search panel with no window. It keeps the calls of the session. Its paste way is the real `PanelPaste`
+/// on a fake window and a fake app in front (D21 of YAZ-2919).
 @MainActor
 final class FakePanel: PickPanel {
     private(set) var calls: [String] = []
     /// The `selectQuery` of each `comeBack` (D20 of YAZ-2919).
     private(set) var comeBackSelects: [Bool] = []
+    let window = FakePasteWindow()
+    let frontApp = FakeFrontApp()
+    /// False: no app is in front when the panel opens.
+    var hasFrontApp = true
+    private(set) var paste: PanelPaste!
 
-    func show() { calls.append("show") }
-    func hide() { calls.append("hide") }
-    func stepAside() { calls.append("stepAside") }
+    /// `strategy`: nil gives `handBack`.
+    init(later: Later, strategy: (() -> PasteStrategy)? = nil) {
+        frontApp.window = window
+        paste = PanelPaste(window: window, later: later, strategy: strategy ?? { .handBack })
+    }
+
+    func show() {
+        calls.append("show")
+        paste.reset()
+        paste.frontApp = hasFrontApp ? frontApp : nil
+        window.set(open: true)
+    }
+    func hide() {
+        calls.append("hide")
+        paste.reset()
+        window.set(open: false)
+    }
+    func makeWayForPaste() -> PasteHandOff {
+        calls.append("makeWay")
+        return paste.makeWay()
+    }
     func comeBack(selectQuery: Bool) {
         calls.append("comeBack")
         comeBackSelects.append(selectQuery)
+        paste.comeBack(selectQuery: selectQuery)
     }
     func reload() {}
     /// New KLIPY results: the grid keeps its scroll.
@@ -160,7 +239,8 @@ final class PickRig {
     let keys = FakeKeySender()
     let access: FakePasteAccess
     let later = FakeLater()
-    let panel = FakePanel()
+    /// The paste way reads `prefs.pasteStrategy`, as the real panel does (D21 of YAZ-2919).
+    let panel: FakePanel
     let session: PickSession
     /// The list of GIFs and memes, in the default preferences folder of the rig, with a step clock.
     let library: LibraryStore
@@ -183,6 +263,7 @@ final class PickRig {
         folder = try sharing ?? TempFolder()
         prefs = Prefs(defaults: defaults)
         if let afterEnter { prefs.afterEnter = afterEnter }
+        panel = FakePanel(later: later) { [prefs] in prefs.pasteStrategy }
         store = YouStore(url: folder.youFile)
         store.load()
         library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),

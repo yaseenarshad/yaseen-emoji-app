@@ -8,10 +8,11 @@ protocol PickPanel: AnyObject {
     func show()
     /// Hides the panel. The session is closed.
     func hide()
-    /// Hides the panel for a ⌘V, so the ⌘V goes to the app in front. The session stays open.
-    func stepAside()
-    /// Shows the panel again after `stepAside()`, with the keyboard. `selectQuery`: all the text of the search box is
-    /// selected, so the next key replaces it (D20 of YAZ-2919).
+    /// Makes way for a ⌘V: the panel gives the keyboard to the app in front, by the paste strategy (D21 of YAZ-2919).
+    /// The session stays open. Returns the check that runs right before the ⌘V: it tells where the ⌘V goes.
+    func makeWayForPaste() -> PasteHandOff
+    /// After the ⌘V: the panel takes the keyboard back, and shows again if it hid. `selectQuery`: all the text of the
+    /// search box is selected, so the next key replaces it (D20 of YAZ-2919).
     func comeBack(selectQuery: Bool)
     /// The query, the lines or the items changed. The grid goes to the top, with the blue box in sight.
     func reload()
@@ -310,6 +311,9 @@ final class PickSession {
     /// True when Enter keeps the panel open (D20 of YAZ-2919).
     private var enterStaysOpen: Bool { prefs.afterEnter == .stayOpen }
 
+    /// How the panel gives the keyboard to the app in front for a ⌘V (D21 of YAZ-2919). The panel reads it at each pick.
+    var pasteStrategy: PasteStrategy { prefs.pasteStrategy }
+
     /// Esc stops "Add a word…" or "Rename…". Else it closes the panel with no paste (D8).
     func escape() {
         if question != nil {
@@ -445,8 +449,9 @@ final class PickSession {
             record()
             return
         }
-        panel?.stepAside()
-        paster.deliver(clip, paste: true, keep: keep) { [weak self] in
+        // D21 of YAZ-2919: the panel stays on the screen and gives the keyboard back, with the old hide as the fallback.
+        let handOff: PasteHandOff = panel?.makeWayForPaste() ?? { .keyWindow }
+        paster.deliver(clip, paste: true, keep: keep, handOff: handOff) { [weak self] in
             guard let self, self.isOpen else { return }
             // D20 of YAZ-2919: the search text is selected, so a new word needs no delete. Enter again pastes again.
             self.panel?.comeBack(selectQuery: true)
