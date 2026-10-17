@@ -670,8 +670,12 @@ final class PickSession {
         guard case .online(let found) = item, let online else { return }
         // The search text is its word, so the next search with that word shows it in "Yours".
         let word = Search.normalize(query)
+        // A file that is not here yet: the line of a pick that waits (D6 of YAZ-2919), until the file comes.
+        let getting = PickSession.gettingText(found.kind)
+        if online.pasteFile(for: found) == nil { show(notice: getting) }
         online.getPasteFile(for: found) { [weak self] url in
             guard let self else { return }
+            if self.notice == getting { self.show(notice: nil) }
             guard let url else { return self.show(notice: PickSession.cantGetText(found.kind)) }
             Task { await self.copyToYours(url, found, words: word.isEmpty ? [] : [word]) }
         }
