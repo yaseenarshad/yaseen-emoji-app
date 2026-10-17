@@ -6,6 +6,8 @@ struct GridMetrics {
     /// The space on the left and the right of the grid.
     static let inset: CGFloat = 12
     static let titleHeight: CGFloat = 26
+    /// The line of text below each GIF and meme tile (D15 of YAZ-2919). The Emoji tab has none.
+    static let labelHeight: CGFloat = 16
 
     /// The side of one cell when `columns` cells fill the width of the 460 points panel:
     /// about 48 points for 9 emojis, about 145 points for 3 tiles.
@@ -14,7 +16,10 @@ struct GridMetrics {
     }
 
     let lines: [PickSession.Line]
+    /// The width of a cell, and the side of the square of its picture.
     let cellSize: CGFloat
+    /// The height of a row of cells: the side of the cell, and the line of text below a tile.
+    let rowHeight: CGFloat
     /// The top of each line, and the full height.
     let tops: [CGFloat]
     let height: CGFloat
@@ -25,6 +30,8 @@ struct GridMetrics {
         self.lines = lines
         let cellSize = GridMetrics.cellSize(columns: columns)
         self.cellSize = cellSize
+        let rowHeight = cellSize + (columns == PickSession.columns ? 0 : GridMetrics.labelHeight)
+        self.rowHeight = rowHeight
         var tops: [CGFloat] = []
         var lineOfItem: [Int] = []
         tops.reserveCapacity(lines.count)
@@ -34,7 +41,7 @@ struct GridMetrics {
             switch line {
             case .title: y += GridMetrics.titleHeight
             case .cells(let range):
-                y += cellSize
+                y += rowHeight
                 lineOfItem += Array(repeating: place, count: range.count)
             }
         }
@@ -49,18 +56,18 @@ struct GridMetrics {
         var high = tops.count
         while low < high {
             let middle = (low + high) / 2
-            if tops[middle] + cellSize < y { low = middle + 1 } else { high = middle }
+            if tops[middle] + rowHeight < y { low = middle + 1 } else { high = middle }
         }
         return low
     }
 
-    /// The cell of the item at `index`.
+    /// The cell of the item at `index`: its picture, and the line of text below a tile.
     func rect(of index: Int) -> NSRect? {
         guard lineOfItem.indices.contains(index) else { return nil }
         let line = lineOfItem[index]
         guard case .cells(let range) = lines[line] else { return nil }
         return NSRect(x: GridMetrics.inset + CGFloat(index - range.lowerBound) * cellSize, y: tops[line],
-                      width: cellSize, height: cellSize)
+                      width: cellSize, height: rowHeight)
     }
 
     /// The item below a point of the grid, or nil on a title or a gap.
@@ -69,7 +76,7 @@ struct GridMetrics {
         for place in line..<min(line + 3, lines.count) {
             guard case .cells(let range) = lines[place] else { continue }
             let top = tops[place]
-            guard point.y >= top, point.y < top + cellSize else { continue }
+            guard point.y >= top, point.y < top + rowHeight else { continue }
             let column = Int((point.x - GridMetrics.inset) / cellSize)
             guard point.x >= GridMetrics.inset, column >= 0, column < range.count else { return nil }
             return range.lowerBound + column
@@ -89,7 +96,7 @@ struct GridMetrics {
     }
 
     /// The most GIF tiles that play at the same time: 3 columns × 5 rows (D11 update on YAZ-2925).
-    /// The grid is 310 points high, so at most 4 rows of 145 points show.
+    /// The grid is 310 points high, so at most 3 rows of 161 points (the tile and its line of text) show.
     static let playingLimit = 15
 
     /// The GIF tiles that play (D11 update on YAZ-2925): each GIF whose cell reaches into `visible` (a part of a tile
@@ -177,6 +184,13 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         paragraph.alignment = .center
         return [.font: emojiFont, .paragraphStyle: paragraph]
     }()
+    /// The text below a tile (D15 of YAZ-2919): one line, secondary color, cut with "…".
+    private static let labelAttributes: [NSAttributedString.Key: Any] = {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        return [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph]
+    }()
     private static let markAttributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: 9, weight: .bold),
         .foregroundColor: NSColor.white,
@@ -233,7 +247,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
 
     /// True when the bottom of the list is in sight, or less than two rows away: time for the next KLIPY page.
     var isNearEnd: Bool {
-        visibleRect.maxY >= bounds.height - 2 * metrics.cellSize
+        visibleRect.maxY >= bounds.height - 2 * metrics.rowHeight
     }
 
     /// The blue box moved: only the two cells draw again, and the list scrolls so the blue box is in sight,
@@ -356,9 +370,15 @@ final class EmojiGridView: NSView, NSMenuDelegate {
 
     // MARK: Drawing
 
-    /// The tile inside its cell.
+    /// The picture of a tile: the square at the top of its cell, inside the inset.
     static func tileRect(_ cell: NSRect) -> NSRect {
-        cell.insetBy(dx: tileInset, dy: tileInset)
+        NSRect(x: cell.minX, y: cell.minY, width: cell.width, height: cell.width).insetBy(dx: tileInset, dy: tileInset)
+    }
+
+    /// The line of text below the picture of a tile (D15 of YAZ-2919).
+    static func labelRect(_ cell: NSRect) -> NSRect {
+        NSRect(x: cell.minX + tileInset, y: cell.minY + cell.width - 1, width: cell.width - 2 * tileInset,
+               height: GridMetrics.labelHeight)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -394,10 +414,20 @@ final class EmojiGridView: NSView, NSMenuDelegate {
                 .draw(with: textRect, options: .usesLineFragmentOrigin, attributes: EmojiGridView.emojiAttributes)
         case .own(let own):
             drawTile(session.thumbnails?.image(own.id), in: cell)
+            drawLabel(of: item, in: cell)
         case .online(let online):
             drawTile(session.online?.still(for: online), in: cell)
             EmojiGridView.drawMark(in: EmojiGridView.tileRect(cell))
+            drawLabel(of: item, in: cell)
         }
+    }
+
+    /// The title of a tile, else its first 3 words, or KLIPY's title (`PickSession.label(of:)`).
+    private func drawLabel(of item: PickItem, in cell: NSRect) {
+        let text = PickSession.label(of: item)
+        guard !text.isEmpty else { return }
+        (text as NSString).draw(with: EmojiGridView.labelRect(cell), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                attributes: EmojiGridView.labelAttributes)
     }
 
     /// The blue box: the accent colour of the Mac, which is blue unless the user changed it.
@@ -440,7 +470,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
     /// Asks for the still pictures of the tiles on the screen, and of one row above and below.
     private func askForStills() {
         guard let thumbnails = session.thumbnails, session.tab != .emoji else { return }
-        let near = visibleRect.insetBy(dx: 0, dy: -metrics.cellSize)
+        let near = visibleRect.insetBy(dx: 0, dy: -metrics.rowHeight)
         let wants = metrics.items(in: near).compactMap { index -> Thumbnails.Want? in
             guard case .own(let own) = session.items[index], let file = session.library.fileURL(of: own)
             else { return nil }

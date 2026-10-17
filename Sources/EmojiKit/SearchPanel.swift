@@ -153,6 +153,8 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
                                           target: nil, action: nil)
     private let grid: EmojiGridView
     private let scrollView = NSScrollView()
+    /// The big preview of the meme with the blue box, beside the panel (D15 of YAZ-2919).
+    private let preview: MemePreviewController
     /// True between `stepAside()` and `comeBack()`. The panel loses the keyboard then, but the session stays open.
     private var isSteppingAside = false
 
@@ -162,7 +164,13 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
                                          height: SearchPanelController.fieldHeight + SearchPanelController.tabBarHeight
                                              + SearchPanelController.gridHeight))
         grid = EmojiGridView(session: session)
+        preview = MemePreviewController(online: session.online,
+                                        mask: SearchPanelController.roundedMask(radius: SearchPanelController.cornerRadius))
         super.init()
+        preview.fileURL = { [weak session] item in
+            guard case .own(let own) = item else { return nil }
+            return session?.library.fileURL(of: own)
+        }
         panel.delegate = self
         panel.onCopy = { [weak session] in session?.copyOnly() }
         panel.onTab = { [weak session] place in session?.select(tab: PickSession.Tab.allCases[place]) }
@@ -243,7 +251,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     }
 
     /// A mask with round corners. The material and the shadow of the window follow it.
-    private static func roundedMask(radius: CGFloat) -> NSImage {
+    static func roundedMask(radius: CGFloat) -> NSImage {
         let edge = radius * 2 + 1
         let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
             NSColor.black.setFill()
@@ -266,18 +274,21 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         }
         takeKeyboard()
         grid.startPlaying()
+        updatePreview()
     }
 
     /// The GIFs stop with the panel, so a closed panel uses no CPU (D11 update on YAZ-2925).
     func hide() {
         isSteppingAside = false
         grid.stopPlaying()
+        updatePreview()
         panel.orderOut(nil)
     }
 
     func stepAside() {
         isSteppingAside = true
         grid.stopPlaying()
+        updatePreview()
         panel.orderOut(nil)
     }
 
@@ -285,6 +296,7 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         takeKeyboard()
         isSteppingAside = false
         grid.startPlaying()
+        updatePreview()
     }
 
     func reload() {
@@ -292,15 +304,25 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         field.placeholderString = session.placeholder
         tabs.selectedSegment = session.tab.rawValue
         grid.reload()
+        updatePreview()
     }
 
     func update() {
         field.placeholderString = session.placeholder
         grid.reload(keepingScroll: true)
+        updatePreview()
     }
 
     func showSelection() {
         grid.showSelection()
+        updatePreview()
+    }
+
+    /// The big preview follows the blue box on the Memes tab, and hides in each other case (`MemePreview.item`).
+    private func updatePreview() {
+        let item = MemePreview.item(isOpen: session.isOpen && panel.isVisible, isSteppingAside: isSteppingAside,
+                                    tab: session.tab, selected: session.selectedItem)
+        preview.show(item, beside: panel)
     }
 
     /// `orderFrontRegardless` does not need the active app, and a panel that does not activate
@@ -356,6 +378,11 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
     /// The search box uses `SearchFieldEditor`, so a file drop on it goes to the add window.
     func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
         (client as? NSTextField) === field ? fieldEditor : nil
+    }
+
+    /// A drag of the panel: the preview moves with it (a child window), and the rule selects its side again.
+    func windowDidMove(_ notification: Notification) {
+        updatePreview()
     }
 
     /// A click outside, or a different window takes the keyboard: the panel closes (D7).

@@ -6,7 +6,8 @@ import Testing
 /// The grid view lives in a scroll view with no window. No test makes a window, and no test goes online.
 @MainActor
 @Suite struct MovingTilesTests {
-    private static let side = GridMetrics.cellSize(columns: PickSession.tileColumns)
+    /// The height of a row of tiles: the square and the line of text below it (D15 of YAZ-2919).
+    private static let side = GridMetrics.cellSize(columns: PickSession.tileColumns) + GridMetrics.labelHeight
 
     private static func gif(_ slug: String) -> PickItem { .online(FakeOnline.gif(slug)) }
     private static func meme(_ slug: String) -> PickItem { .online(FakeOnline.gif(slug, kind: .meme)) }
@@ -21,7 +22,7 @@ import Testing
         let metrics = GridMetrics(lines: lines, columns: PickSession.tileColumns)
         let side = Self.side
 
-        // The top of the panel: row 1, and a part of row 2 (from 201 to 346 points, the grid is 310 high).
+        // The top of the panel: row 1, and a part of row 2 (from 217 to 379 points, the grid is 310 high).
         let top = NSRect(x: 0, y: 0, width: 460, height: 310)
         #expect(metrics.playing(in: top, items: items) == [0, 2, 3, 4, 5])
         // A scroll of 2 points less than the bottom of row 1: its tiles still play. At its bottom: they stop.
@@ -32,9 +33,9 @@ import Testing
         let all = metrics.playing(in: NSRect(x: 0, y: 0, width: 460, height: 10_000), items: items)
         #expect(all.count == GridMetrics.playingLimit && GridMetrics.playingLimit == 15)
         #expect(all == [0, 2] + Array(3..<16))
-        // At most 4 rows show in the 310 points of the grid, so 15 views are enough.
+        // At most 3 rows of 161 points show in the 310 points of the grid, so 15 views are enough.
         for y in stride(from: CGFloat(0), to: metrics.height, by: 7) {
-            #expect(metrics.playing(in: top.offsetBy(dx: 0, dy: y), items: items).count <= 12)
+            #expect(metrics.playing(in: top.offsetBy(dx: 0, dy: y), items: items).count <= 9)
         }
         // The Emoji tab: nothing plays.
         let emojis = GridMetrics(lines: [.cells(0..<9)], columns: PickSession.columns)

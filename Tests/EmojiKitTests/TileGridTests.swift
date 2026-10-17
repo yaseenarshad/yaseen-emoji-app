@@ -8,15 +8,26 @@ import Testing
 @MainActor
 @Suite struct TileGridTests {
     /// D11: 3 tiles in a row, about 145 points each, in the 460 points panel. `index(at:)` finds a tile from a point.
+    /// D15: each row is 16 points higher for the line of text below the tiles. The picture keeps its square.
     @Test func theGridPlacesThreeTilesInARow() {
         let lines: [PickSession.Line] = [.title("Your GIFs"), .cells(0..<3), .cells(3..<5)]
         let metrics = GridMetrics(lines: lines, columns: PickSession.tileColumns)
         let side = (460 - 2 * GridMetrics.inset) / 3
+        let row = side + 16
         #expect(metrics.cellSize == side && side > 145 && side < 146)
-        #expect(metrics.rect(of: 0) == NSRect(x: 12, y: 4 + GridMetrics.titleHeight, width: side, height: side))
-        #expect(metrics.rect(of: 4) == NSRect(x: 12 + side, y: 4 + GridMetrics.titleHeight + side, width: side, height: side))
+        #expect(GridMetrics.labelHeight == 16 && metrics.rowHeight == row)
+        #expect(metrics.rect(of: 0) == NSRect(x: 12, y: 4 + GridMetrics.titleHeight, width: side, height: row))
+        #expect(metrics.rect(of: 4) == NSRect(x: 12 + side, y: 4 + GridMetrics.titleHeight + row, width: side, height: row))
         #expect(metrics.rect(of: 5) == nil)
-        #expect(metrics.height == 4 + GridMetrics.titleHeight + 2 * side + 8)
+        #expect(metrics.height == 4 + GridMetrics.titleHeight + 2 * row + 8)
+        // The picture is the square at the top of the cell. The line of text is below it, inside the cell.
+        let cell = metrics.rect(of: 0)!
+        let picture = EmojiGridView.tileRect(cell)
+        let label = EmojiGridView.labelRect(cell)
+        #expect(picture == NSRect(x: 16, y: 34, width: side - 8, height: side - 8))
+        #expect(label.minY >= picture.maxY && label.maxY <= cell.maxY && label.height == 16)
+        // A point on the line of text finds its tile.
+        #expect(metrics.index(at: NSPoint(x: label.midX, y: label.midY)) == 0)
 
         // The middle of each tile finds it. A title, the gap on the left and the empty end of a short row find nothing.
         for index in 0..<5 {
@@ -25,7 +36,7 @@ import Testing
         }
         #expect(metrics.index(at: NSPoint(x: 100, y: 10)) == nil)
         #expect(metrics.index(at: NSPoint(x: 5, y: 100)) == nil)
-        #expect(metrics.index(at: NSPoint(x: 12 + 2.5 * side, y: 30 + 1.5 * side)) == nil)
+        #expect(metrics.index(at: NSPoint(x: 12 + 2.5 * side, y: 30 + 1.5 * row)) == nil)
         #expect(metrics.items(in: NSRect(x: 0, y: 0, width: 460, height: 100)) == [0, 1, 2])
         #expect(metrics.items(in: NSRect(x: 0, y: 100, width: 460, height: 100)) == [0, 1, 2, 3, 4])
         #expect(metrics.items(in: NSRect(x: 0, y: 200, width: 460, height: 100)) == [3, 4])
@@ -33,6 +44,7 @@ import Testing
         // The Emoji tab keeps 9 cells of about 48 points (v0.1).
         let emojis = GridMetrics(lines: [.cells(0..<9)], columns: PickSession.columns)
         #expect(emojis.cellSize == GridMetrics.cellSize(columns: 9) && emojis.cellSize > 48 && emojis.cellSize < 49)
+        #expect(emojis.rowHeight == emojis.cellSize && emojis.rect(of: 0)?.height == emojis.cellSize)
         #expect(emojis.index(at: NSPoint(x: 12 + 8.5 * emojis.cellSize, y: 20)) == 8)
     }
 

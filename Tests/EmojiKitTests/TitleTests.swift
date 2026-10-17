@@ -247,4 +247,65 @@ import UniformTypeIdentifiers
         session.setQuery("rocket")
         #expect(session.items.first?.emoji?.text == "🚀")
     }
+
+    /// The big preview (D15): the Memes tab and a meme with the blue box show that meme. The GIFs tab, no blue box,
+    /// a hidden panel, a step aside and "Rename…" hide it.
+    @Test func thePreviewShowsTheMemeWithTheBlueBox() throws {
+        let rig = try PickRig()
+        let first = try addMeme(rig, words: ["fine"], seed: 1)
+        let second = try addMeme(rig, words: ["dog"], seed: 2)
+        try rig.addOwn(.gif, words: ["dance"])
+        let session = rig.session
+        func preview(steppingAside: Bool = false) -> PickItem? {
+            MemePreview.item(isOpen: session.isOpen, isSteppingAside: steppingAside, tab: session.tab, selected: session.selectedItem)
+        }
+        session.open()
+        #expect(preview() == nil)                                    // the Emoji tab
+        session.select(tab: .gifs)
+        #expect(session.selectedItem?.kind == .gif && preview() == nil)
+        session.select(tab: .memes)
+        #expect(preview() == .own(second))
+        session.move(.right)
+        #expect(preview() == .own(first))
+        session.select(0)
+        #expect(preview() == .own(second))
+        #expect(preview(steppingAside: true) == nil)
+        // No match: no item has the blue box.
+        session.setQuery("zzqqxx")
+        #expect(session.selection == nil && preview() == nil)
+        session.setQuery("")
+        session.perform(.rename)
+        #expect(preview() == nil)
+        session.escape()
+        #expect(preview() == .own(second))
+        session.close()
+        #expect(preview() == nil)
+        // A KLIPY meme counts too. A GIF never shows.
+        let meme = FakeOnline.gif("fine-dog", kind: .meme)
+        #expect(MemePreview.item(isOpen: true, isSteppingAside: false, tab: .memes, selected: .online(meme)) == .online(meme))
+        #expect(MemePreview.item(isOpen: true, isSteppingAside: false, tab: .memes, selected: .online(FakeOnline.gif("g"))) == nil)
+    }
+
+    /// The side of the preview: right of the panel when 8 + 360 points fit on the visible screen, else left,
+    /// else the side with more room. The same top and height as the panel.
+    @Test func thePreviewGoesRightOrLeftByTheRoomOnTheScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
+        let middle = CGRect(x: 490, y: 337, width: 460, height: 392)
+        #expect(MemePreview.side(panel: middle, visibleFrame: screen) == .right)
+        #expect(MemePreview.frame(panel: middle, visibleFrame: screen) == CGRect(x: 958, y: 337, width: 360, height: 392))
+        // Dragged to the right edge: the preview goes left.
+        let right = CGRect(x: 900, y: 337, width: 460, height: 392)
+        #expect(MemePreview.side(panel: right, visibleFrame: screen) == .left)
+        #expect(MemePreview.frame(panel: right, visibleFrame: screen) == CGRect(x: 532, y: 337, width: 360, height: 392))
+        // Exactly enough room on the right.
+        let edge = CGRect(x: 1440 - 368 - 460, y: 0, width: 460, height: 392)
+        #expect(MemePreview.side(panel: edge, visibleFrame: screen) == .right)
+        // A second screen on the left of the main screen.
+        let left = CGRect(x: -1280, y: 0, width: 1280, height: 800)
+        #expect(MemePreview.side(panel: CGRect(x: -500, y: 200, width: 460, height: 392), visibleFrame: left) == .left)
+        // No room on either side: the side with more room.
+        let small = CGRect(x: 0, y: 0, width: 800, height: 600)
+        #expect(MemePreview.side(panel: CGRect(x: 100, y: 0, width: 460, height: 392), visibleFrame: small) == .right)
+        #expect(MemePreview.side(panel: CGRect(x: 300, y: 0, width: 460, height: 392), visibleFrame: small) == .left)
+    }
 }
