@@ -217,7 +217,7 @@ final class AddModel: ObservableObject {
             }
             markDuplicates()
             // D8: a meme has its read words at once. A duplicate has its words already.
-            if file.kind == .meme, row(id)?.existing == nil { await read(id, file.bytes) }
+            if file.kind == .meme, let row = row(id), row.existing == nil { await read(id, file.bytes) }
         } catch {
             change(id) { row in
                 row.state = .failed
