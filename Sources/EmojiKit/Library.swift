@@ -365,7 +365,7 @@ public final class LibraryStore {
             return .alreadyThere(item)
         }
         let kind = kind ?? file.kind
-        let path = "\(kind.folderName)/\(file.id).\(file.ext)"
+        let path = path(of: file, as: kind)
         try write(file, at: path)
         let time = now()
         let old = all[file.id]?.words ?? []
@@ -415,15 +415,33 @@ public final class LibraryStore {
 
     // MARK: The files
 
+    /// The file that `add` uses for `file`: the file of the item with the same `id`, or `<kind folder>/<id>.<ext>`.
+    /// Nil when the GIFs and memes folder is gone. The add window writes the bytes there off the main thread
+    /// (`writeMediaFile`), then calls `add` on the main thread, which finds the file and only saves the list.
+    public func place(of file: PreparedFile, as kind: ItemKind? = nil) -> URL? {
+        guard !isMediaFolderMissing() else { return nil }
+        if let item = all[file.id], !item.isRemoved { return item.file.map { mediaFolder.appendingPathComponent($0) } }
+        return mediaFolder.appendingPathComponent(path(of: file, as: kind))
+    }
+
+    /// `gifs/<id>.<ext>` or `memes/<id>.<ext>`.
+    private func path(of file: PreparedFile, as kind: ItemKind?) -> String {
+        "\((kind ?? file.kind).folderName)/\(file.id).\(file.ext)"
+    }
+
+    /// Writes the bytes of a file of the list, with an atomic write, unless that file is already there.
+    /// The name is the hash of the bytes, so a file with that name has the same bytes. Safe off the main thread.
+    public static func writeMediaFile(_ bytes: Data, to url: URL) throws {
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: url, options: .atomic)
+    }
+
     /// Writes the bytes at `path` in the GIFs and memes folder, unless that file is already there.
-    /// The name is the hash of the bytes, so a file with that name has the same bytes.
     private func write(_ file: PreparedFile, at path: String?) throws {
         guard let path else { return }
         if isMediaFolderMissing() { throw MediaFolder.Missing() }
-        let url = mediaFolder.appendingPathComponent(path)
-        guard !FileManager.default.fileExists(atPath: url.path) else { return }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try file.bytes.write(to: url, options: .atomic)
+        try LibraryStore.writeMediaFile(file.bytes, to: mediaFolder.appendingPathComponent(path))
     }
 
     /// True when a chosen GIFs and memes folder is gone. The preferences folder itself is never missing:
