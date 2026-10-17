@@ -37,7 +37,8 @@ enum SettingsPage: String, CaseIterable {
             return [SettingsSection(rows: [.hotKey, .defaultTone, .startAtLogin]),
                     SettingsSection(title: "Accessibility", rows: [.accessibility])]
         case .enterAndPaste:
-            return [SettingsSection(title: "When you press Enter", rows: [.enterEmojis, .enterGIFs, .enterMemes],
+            return [SettingsSection(rows: [.afterEnter]),
+                    SettingsSection(title: "When you press Enter", rows: [.enterEmojis, .enterGIFs, .enterMemes],
                                     showsEnterText: true)]
         case .gifsAndMemes:
             return [SettingsSection(rows: [.klipyKey, .klipyGIFs, .klipyMemes]),
@@ -70,6 +71,8 @@ enum SettingsRow: CaseIterable {
     case defaultTone
     case startAtLogin
     case accessibility
+    /// "After Enter: Stay open | Close" (D20 of YAZ-2919).
+    case afterEnter
     /// "When you press Enter" of emojis, GIFs and memes (D16 of YAZ-2919).
     case enterEmojis, enterGIFs, enterMemes
     /// The KLIPY key (D2, D14 of YAZ-2919), and the two KLIPY switches (D14 update).

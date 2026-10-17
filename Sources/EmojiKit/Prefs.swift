@@ -14,6 +14,21 @@ enum PickMode: String, CaseIterable {
     }
 }
 
+/// "After Enter" (D20 of YAZ-2919): after a paste, the panel stays open for the next pick, or it closes.
+/// Shift+Enter does the other one.
+enum AfterEnter: String, CaseIterable {
+    case stayOpen
+    case close
+
+    /// The name in Settings → "After Enter".
+    var title: String {
+        switch self {
+        case .stayOpen: return "Stay open"
+        case .close: return "Close"
+        }
+    }
+}
+
 /// The three rows of Settings → "When you press Enter" (D16 of YAZ-2919). Each kind has its own mode and Keep value.
 enum PickKind: String, CaseIterable {
     case emoji
@@ -58,7 +73,7 @@ enum SkinTone {
 
 /// The settings of the app, in `UserDefaults` (D2, D8, D9, D16).
 ///
-/// The hotkey, "When you press Enter", the default skin tone and the two KLIPY switches also sync through the history files (D16).
+/// The hotkey, "After Enter", "When you press Enter", the default skin tone and the two KLIPY switches also sync through the history files (D16).
 /// `UserDefaults` is the cache of this Mac: it keeps the value and the time of the change that this Mac applied.
 /// The `UserDefaults` is a parameter, so a test gives one that keeps its values in memory.
 /// A value that is missing or broken gives the start value. Prefs never fail.
@@ -75,6 +90,8 @@ final class Prefs {
         static let defaultToneChangedAt = "yaseenEmoji.defaultToneChangedAt"
         static let keepOnClipboard = "yaseenEmoji.keepOnClipboard"
         static let keepOnClipboardChangedAt = "yaseenEmoji.keepOnClipboardChangedAt"
+        static let afterEnter = "yaseenEmoji.afterEnter"
+        static let afterEnterChangedAt = "yaseenEmoji.afterEnterChangedAt"
         static let klipyGIFs = "yaseenEmoji.klipyGIFs"
         static let klipyMemes = "yaseenEmoji.klipyMemes"
         static let klipyGIFsChangedAt = "yaseenEmoji.klipyGIFsChangedAt"
@@ -112,6 +129,12 @@ final class Prefs {
             defaults.set(Int(newValue.keyCode), forKey: Key.hotKeyCode)
             defaults.set(Int(newValue.modifiers.rawValue), forKey: Key.hotKeyModifiers)
         }
+    }
+
+    /// "After Enter" (D20 of YAZ-2919). The start value is Stay open.
+    var afterEnter: AfterEnter {
+        get { (defaults.object(forKey: Key.afterEnter) as? String).flatMap(AfterEnter.init(rawValue:)) ?? .stayOpen }
+        set { defaults.set(newValue.rawValue, forKey: Key.afterEnter) }
     }
 
     /// "When you press Enter" of one kind (D16 of YAZ-2919). A kind with no value of its own uses the one
@@ -174,6 +197,12 @@ final class Prefs {
     var defaultToneChangedAt: Date? {
         get { defaults.object(forKey: Key.defaultToneChangedAt) as? Date }
         set { defaults.set(newValue, forKey: Key.defaultToneChangedAt) }
+    }
+
+    /// The time of "After Enter" that this Mac uses now, or nil.
+    var afterEnterChangedAt: Date? {
+        get { defaults.object(forKey: Key.afterEnterChangedAt) as? Date }
+        set { defaults.set(newValue, forKey: Key.afterEnterChangedAt) }
     }
 
     /// The time of the mode of `kind` that this Mac uses now. A kind with no time of its own uses the time of

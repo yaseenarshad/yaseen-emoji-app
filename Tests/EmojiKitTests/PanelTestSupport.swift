@@ -133,11 +133,16 @@ final class FakeLater: Later {
 @MainActor
 final class FakePanel: PickPanel {
     private(set) var calls: [String] = []
+    /// The `selectQuery` of each `comeBack` (D20 of YAZ-2919).
+    private(set) var comeBackSelects: [Bool] = []
 
     func show() { calls.append("show") }
     func hide() { calls.append("hide") }
     func stepAside() { calls.append("stepAside") }
-    func comeBack() { calls.append("comeBack") }
+    func comeBack(selectQuery: Bool) {
+        calls.append("comeBack")
+        comeBackSelects.append(selectQuery)
+    }
     func reload() {}
     /// New KLIPY results: the grid keeps its scroll.
     func update() { calls.append("update") }
@@ -167,11 +172,17 @@ final class PickRig {
 
     /// The KLIPY key of `parts`: none by default.
     let klipyKey = FakeKeyStore()
+    /// The folder moves of Settings run at once (item 16 of YAZ-2929).
+    let fileWork = ImmediateFileWork()
 
     /// `sharing`: the folder of an earlier rig, for a new start of the app over the same files (D18 of YAZ-2919).
-    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil, sharing: TempFolder? = nil) throws {
+    /// `afterEnter`: the v0.1 tests read Enter as "paste and close", so the rig sets "After Enter: Close" (D20 of
+    /// YAZ-2919). Nil keeps the start value, Stay open.
+    init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil, sharing: TempFolder? = nil,
+         afterEnter: AfterEnter? = .close) throws {
         folder = try sharing ?? TempFolder()
         prefs = Prefs(defaults: defaults)
+        if let afterEnter { prefs.afterEnter = afterEnter }
         store = YouStore(url: folder.youFile)
         store.load()
         library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
@@ -221,7 +232,7 @@ final class PickRig {
     /// the same as in the app.
     func settingsModel() -> SettingsModel {
         let model = SettingsModel(prefs: prefs, hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), access: access,
-                                  store: store, folders: folders, library: library, keyStore: klipyKey)
+                                  store: store, folders: folders, library: library, keyStore: klipyKey, fileWork: fileWork)
         model.onKlipySwitchChanged = { [session] in session.klipySwitchChanged() }
         return model
     }
@@ -238,7 +249,8 @@ final class PickRig {
                  onlineSession: KlipyLibrary.makeSession(protocolClasses: [StubURLProtocol.self]),
                  cacheFolder: folder.url.appendingPathComponent("Caches", isDirectory: true),
                  klipyFolder: folder.url.appendingPathComponent("klipy", isDirectory: true),
-                 makePanel: { [panel] _ in panel })
+                 makePanel: { [panel] _ in panel },
+                 fileWork: fileWork)
     }
 }
 
@@ -294,5 +306,37 @@ final class FakeOnline: OnlineResults {
                           preview: base.appendingPathComponent("sm.gif"), file: base.appendingPathComponent("md.gif"),
                           fileType: kind == .gif ? .gif : .png, fileExtension: kind == .gif ? "gif" : "png",
                           width: 100, height: 100, bytes: nil)
+    }
+}
+
+/// Runs the file work of a folder move at once, on the main thread, so a test needs no wait (item 16 of YAZ-2929).
+@MainActor
+final class ImmediateFileWork: FileWork {
+    func run(_ work: @escaping @Sendable () throws -> Void, done: @escaping @MainActor (Error?) -> Void) {
+        do {
+            try work()
+            done(nil)
+        } catch {
+            done(error)
+        }
+    }
+}
+
+/// Keeps the file work of a folder move until the test calls `finish()`. Then the test sees the state in the middle.
+@MainActor
+final class HeldFileWork: FileWork {
+    private var held: [(work: @Sendable () throws -> Void, done: @MainActor (Error?) -> Void)] = []
+
+    var count: Int { held.count }
+
+    func run(_ work: @escaping @Sendable () throws -> Void, done: @escaping @MainActor (Error?) -> Void) {
+        held.append((work, done))
+    }
+
+    /// Runs the first work that waits, then gives its result.
+    func finish() {
+        guard !held.isEmpty else { return }
+        let next = held.removeFirst()
+        ImmediateFileWork().run(next.work, done: next.done)
     }
 }

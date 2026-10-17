@@ -10,8 +10,9 @@ protocol PickPanel: AnyObject {
     func hide()
     /// Hides the panel for a ⌘V, so the ⌘V goes to the app in front. The session stays open.
     func stepAside()
-    /// Shows the panel again after `stepAside()`, with the keyboard.
-    func comeBack()
+    /// Shows the panel again after `stepAside()`, with the keyboard. `selectQuery`: all the text of the search box is
+    /// selected, so the next key replaces it (D20 of YAZ-2919).
+    func comeBack(selectQuery: Bool)
     /// The query, the lines or the items changed. The grid goes to the top, with the blue box in sight.
     func reload()
     /// New KLIPY results or items came (D11 of YAZ-2919). The grid takes the new lines and keeps its scroll.
@@ -20,7 +21,7 @@ protocol PickPanel: AnyObject {
     func showSelection()
 }
 
-/// The rules of the search panel, with no window and no view (D5, D7, D8, D9, D15, D17; D10, D11, D13 of YAZ-2919).
+/// The rules of the search panel, with no window and no view (D5, D7, D8, D9, D15, D17; D10, D11, D13, D20 of YAZ-2919).
 ///
 /// It holds the tab, the search text, the lines of the grid, the blue box, and what each key does.
 /// The panel is a thin adapter: it turns key presses and clicks into these calls and shows
@@ -290,15 +291,24 @@ final class PickSession {
         panel?.reload()
     }
 
-    /// Enter picks and closes. Shift+Enter picks and stays open (D8).
+    /// Enter picks. With "After Enter: Stay open" (D20 of YAZ-2919, the start value) the panel stays open, and
+    /// Shift+Enter closes it. With "Close", the v0.1 rule (D8): Enter closes, and Shift+Enter stays open.
     /// While "Add a word…" waits, Enter adds the word. While "Rename…" waits, Enter saves the title.
     func enter(shift: Bool) {
         if question != nil {
             finishQuestion()
         } else {
-            pick(stayOpen: shift)
+            pick(stayOpen: enterStaysOpen != shift)
         }
     }
+
+    /// A click on a tile: the same as Enter (D8; D20 of YAZ-2919).
+    func click() {
+        pick(stayOpen: enterStaysOpen)
+    }
+
+    /// True when Enter keeps the panel open (D20 of YAZ-2919).
+    private var enterStaysOpen: Bool { prefs.afterEnter == .stayOpen }
 
     /// Esc stops "Add a word…" or "Rename…". Else it closes the panel with no paste (D8).
     func escape() {
@@ -379,7 +389,8 @@ final class PickSession {
 
     /// Puts the item with the blue box into the app in front (D2; D6 of YAZ-2919), and learns the search text (D4).
     /// With no blue box (no results), or a GIF whose file went away while the panel is open, it does nothing (D8; D4 of YAZ-2919).
-    /// A KLIPY item whose paste file is not ready waits up to 3 s, with "Getting the GIF…".
+    /// A KLIPY item whose paste file is not ready waits up to 3 s, with "Getting the GIF…". A pick that only copies
+    /// (Copy only, no Accessibility, a password field) closes the panel: you paste it yourself (D20 of YAZ-2919).
     func pick(stayOpen: Bool) {
         start(.paste(stayOpen: stayOpen))
     }
@@ -428,20 +439,17 @@ final class PickSession {
         // The mode and the Keep value of the kind of the item (D16 of YAZ-2919).
         let paste = paster.willPaste(prefs.pickMode(item.pickKind))
         let keep = prefs.keepsOnClipboard(item.pickKind)
-        guard stayOpen else {
+        guard stayOpen, paste else {
             close()
             paster.deliver(clip, paste: paste, keep: keep)
             record()
             return
         }
-        if paste {
-            panel?.stepAside()
-            paster.deliver(clip, paste: true, keep: keep) { [weak self] in
-                guard let self, self.isOpen else { return }
-                self.panel?.comeBack()
-            }
-        } else {
-            paster.deliver(clip, paste: false)
+        panel?.stepAside()
+        paster.deliver(clip, paste: true, keep: keep) { [weak self] in
+            guard let self, self.isOpen else { return }
+            // D20 of YAZ-2919: the search text is selected, so a new word needs no delete. Enter again pastes again.
+            self.panel?.comeBack(selectQuery: true)
         }
         record()
         // The list does not move while the panel stays open, so the blue box stays where you

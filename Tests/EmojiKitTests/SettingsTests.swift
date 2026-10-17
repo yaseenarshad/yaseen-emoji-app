@@ -12,7 +12,7 @@ import Testing
 
     private func makeModel(_ rig: PickRig, hotKeys: FakeHotKeyRegistrar, loginItem: FakeLoginItem = FakeLoginItem()) -> SettingsModel {
         let model = SettingsModel(prefs: rig.prefs, hotKeys: hotKeys, loginItem: loginItem, access: rig.access, store: rig.store,
-                                  folders: rig.folders, library: rig.library, keyStore: rig.klipyKey)
+                                  folders: rig.folders, library: rig.library, keyStore: rig.klipyKey, fileWork: rig.fileWork)
         model.registerHotKey()
         return model
     }
