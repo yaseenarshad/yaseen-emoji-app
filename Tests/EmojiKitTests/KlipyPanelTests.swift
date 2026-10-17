@@ -392,6 +392,7 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         session.select(place)
         #expect(session.menuActions(at: place) == [.saveToYours(.gif), .copyOnly, .addNew])
         session.perform(.saveToYours(.gif))
+        #expect(session.notice == nil)
         await waitUntil { rig.library.items(.gif).count == 1 }
         let own = try #require(rig.library.items(.gif).first)
         let copied = PreparedFile(bytes: two, ext: "gif", kind: .gif)
@@ -409,7 +410,10 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         // "Cat one" has no kept file: the save downloads its paste file. A save is not a pick: no card, no use.
         session.select(1)
         session.perform(.saveToYours(.gif))
+        // The save waits for the download with the line of a pick that waits.
+        #expect(session.notice == "Getting the GIF…" && session.lines.first == .title("Getting the GIF…"))
         await waitUntil { rig.library.items(.gif).count == 2 }
+        #expect(session.notice == nil)
         #expect(klipy.requests("media").count == 2)
         #expect(rig.library.items(.gif).map(\.title).sorted() == ["Cat Two", "Cat one"])
         #expect(rig.library.card("cat-1") == nil && rig.store.you.uses["klipy:cat-1"] == nil)
@@ -540,6 +544,19 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         #expect(klipy.requests("media").count == 1)
         #expect(klipy.rig.store.you.uses["klipy:shaq-dance"]?.count == 1)
         #expect(klipy.rig.store.you.learned["hi"]?["klipy:shaq-dance"]?.count == 1)
+
+        // A prefetch with no pick: the 5-minute clean-up deletes its paste file, and the next open drops its entry.
+        let hello = try #require(klipy.klipy.item("hello-hi-662", kind: .gif))
+        klipy.klipy.selectionChanged(to: hello)
+        klipy.clock.advance(by: 0.3)
+        await waitUntil { klipy.klipy.pasteFile(for: hello) != nil }
+        let helloFile = try #require(klipy.klipy.pasteFile(for: hello))
+        #expect(klipy.klipy.pasteFileCount == 1)
+        klipy.klipy.refresh()
+        #expect(klipy.klipy.pasteFileCount == 1)
+        try FileManager.default.removeItem(at: helloFile)
+        klipy.klipy.refresh()
+        #expect(klipy.klipy.pasteFileCount == 0)
     }
 
     /// D6: Enter before the file is ready waits with "Getting the GIF…". After 3 s with no file:

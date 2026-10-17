@@ -52,7 +52,7 @@ final class SearchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// The app has no main menu, so no menu gives the edit keys to the search box. The panel does it.
+    /// ⌘C is "Copy only", ⌘1 to ⌘3 are the tabs, and the other edit keys go to the search box (`EditKeys`).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let combo = HotKeyCombo(keyDown: event) else { return super.performKeyEquivalent(with: event) }
         let command = NSEvent.ModifierFlags.command
@@ -63,17 +63,35 @@ final class SearchPanel: NSPanel {
         case (kVK_ANSI_1, command), (kVK_ANSI_2, command), (kVK_ANSI_3, command):
             onTab([kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3].firstIndex(of: Int(combo.keyCode)) ?? 0)
             return true
-        case (kVK_ANSI_V, command): return send(#selector(NSText.paste(_:)))
-        case (kVK_ANSI_X, command): return send(#selector(NSText.cut(_:)))
-        case (kVK_ANSI_A, command): return send(#selector(NSText.selectAll(_:)))
-        case (kVK_ANSI_Z, command): return send(Selector(("undo:")))
-        case (kVK_ANSI_Z, [.command, .shift]): return send(Selector(("redo:")))
-        default: return super.performKeyEquivalent(with: event)
+        default:
+            return EditKeys.send(combo, in: self) ?? super.performKeyEquivalent(with: event)
+        }
+    }
+}
+
+/// The edit keys of a text box: ⌘V, ⌘C, ⌘X, ⌘A, ⌘Z and ⇧⌘Z. The app has no main menu, so no menu gives them
+/// to the box. The search panel, the add window and the settings window use this one map.
+enum EditKeys {
+    /// The edit action of `combo`, or nil when it is not an edit key.
+    static func action(for combo: HotKeyCombo) -> Selector? {
+        let command = NSEvent.ModifierFlags.command
+        switch (Int(combo.keyCode), combo.modifiers) {
+        case (kVK_ANSI_V, command): return #selector(NSText.paste(_:))
+        case (kVK_ANSI_C, command): return #selector(NSText.copy(_:))
+        case (kVK_ANSI_X, command): return #selector(NSText.cut(_:))
+        case (kVK_ANSI_A, command): return #selector(NSText.selectAll(_:))
+        case (kVK_ANSI_Z, command): return Selector(("undo:"))
+        case (kVK_ANSI_Z, [.command, .shift]): return Selector(("redo:"))
+        default: return nil
         }
     }
 
-    private func send(_ action: Selector) -> Bool {
-        firstResponder?.tryToPerform(action, with: self) ?? false
+    /// Gives the edit action of `combo` to the box with the keyboard in `window`. Nil when `combo` is not an edit key.
+    /// False when the box did not take it.
+    @MainActor
+    static func send(_ combo: HotKeyCombo, in window: NSWindow) -> Bool? {
+        guard let action = action(for: combo) else { return nil }
+        return window.firstResponder?.tryToPerform(action, with: window) ?? false
     }
 }
 

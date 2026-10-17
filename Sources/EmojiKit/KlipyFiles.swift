@@ -29,8 +29,14 @@ final class KlipyFiles {
     }
 
     /// Lists the folder one time (at each open of the panel), the same as `gifs/` and `memes/` (D13 update).
+    /// A `.part` file is the rest of a move that a crash stopped: it goes. A move runs only inside `keep`, on the
+    /// main thread, so no move runs now.
     func reload() {
         index = [:]
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where name.hasPrefix(".") && name.hasSuffix(".part") {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+        }
         for file in files() { index[file.deletingPathExtension().lastPathComponent] = file }
     }
 

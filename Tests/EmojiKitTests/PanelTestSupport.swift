@@ -290,7 +290,7 @@ final class FakeOnline: OnlineResults {
     /// A KLIPY GIF with this slug. The URLs are never loaded.
     static func gif(_ slug: String, kind: ItemKind = .gif) -> OnlineItem {
         let base = URL(string: "https://static.klipy.com/\(slug)")!
-        return OnlineItem(id: slug, number: nil, kind: kind, title: slug, still: base.appendingPathComponent("sm.jpg"),
+        return OnlineItem(id: slug, kind: kind, title: slug, still: base.appendingPathComponent("sm.jpg"),
                           preview: base.appendingPathComponent("sm.gif"), file: base.appendingPathComponent("md.gif"),
                           fileType: kind == .gif ? .gif : .png, fileExtension: kind == .gif ? "gif" : "png",
                           width: 100, height: 100, bytes: nil)

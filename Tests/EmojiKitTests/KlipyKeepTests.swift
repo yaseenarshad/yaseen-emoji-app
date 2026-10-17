@@ -182,7 +182,7 @@ private final class DownloadCount: @unchecked Sendable {
     }
 
     /// At most 200 MB of kept files: the files with the oldest last use go. The file of this pick always stays.
-    /// The move into the folder leaves no part file.
+    /// The move into the folder leaves no part file. A part file that a crash left goes at the next listing.
     @Test func theKeptFilesStayBelowTheSizeLimit() throws {
         #expect(KlipyFiles.fileLimit == 50 && KlipyFiles.byteLimit == 200 * 1024 * 1024)
         let temp = try TempFolder()
@@ -203,9 +203,11 @@ private final class DownloadCount: @unchecked Sendable {
         _ = try files.keep(try download("d", bytes: 1_500), slug: "d", ext: "gif")
         #expect(files.names == ["d.gif"])
         #expect(temp.names(in: files.folder) == ["d.gif"])
-        // A new listing (the next open) finds the same file.
+        // A new listing (the next open) finds the same file, and deletes the part file of a move that a crash stopped.
+        try Data(repeating: 7, count: 10).write(to: files.folder.appendingPathComponent(".\(UUID().uuidString).part"))
         files.reload()
         #expect(files.file(for: "d")?.lastPathComponent == "d.gif" && files.file(for: "c") == nil)
+        #expect(temp.names(in: files.folder) == ["d.gif"])
     }
 
     /// Two Macs: a card from Mac B shows on Mac A at the next open, from its URLs, with no lookup. Mac A has no file

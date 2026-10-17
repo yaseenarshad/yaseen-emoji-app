@@ -81,6 +81,12 @@ public struct Item: Codable, Equatable, Sendable {
         return result
     }
 
+    /// Typed words, in the words box of the add window or in `--add-media --words`: split at spaces and commas,
+    /// then `clean`. "Dance, party" gives "dance" and "party".
+    static func words(typed text: String) -> [String] {
+        clean(text.split { $0.isWhitespace || $0 == "," }.map(String.init))
+    }
+
     /// A title as the list keeps it (D15 of YAZ-2919): trimmed, one space between words, the case as typed.
     static func cleanTitle(_ text: String) -> String {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -244,8 +250,8 @@ public enum MediaFolder {
     }
 
     /// The folder to use: the chosen folder, or the preferences folder when none is chosen ("").
-    /// A chosen folder that is gone stays the folder, with `isMissing` true: the items show grey tiles,
-    /// and Settings shows the red line. The app never writes the files into a different folder in silence.
+    /// A chosen folder that is gone stays the folder, with `isMissing` true: your items do not show (D13 update on
+    /// YAZ-2926), the panel and Settings show the red line. The app never writes the files into a different folder in silence.
     public static func resolve(chosen: String, preferencesFolder: URL) -> (folder: URL, isMissing: Bool) {
         guard !chosen.isEmpty else { return (preferencesFolder, false) }
         let folder = URL(fileURLWithPath: chosen, isDirectory: true)
@@ -525,7 +531,8 @@ public final class LibraryStore {
             for old in oldest.prefix(own.cards.count - LibraryStore.cardLimit) { own.cards[old.key] = nil }
         }
         save()
-        combine()
+        // Only the cards changed: the items are not combined and sorted again.
+        combineCards()
     }
 
     // MARK: The files
@@ -574,10 +581,14 @@ public final class LibraryStore {
 
     private func combine() {
         all = LibraryFile.combine(own: own, others: others.values)
-        cards = LibraryFile.combineCards(own: own, others: others.values)
+        combineCards()
         items = all.values.filter { !$0.isRemoved }.sorted { a, b in
             a.added != b.added ? a.added > b.added : a.id < b.id
         }
+    }
+
+    private func combineCards() {
+        cards = LibraryFile.combineCards(own: own, others: others.values)
     }
 
     private func readOthers() -> Bool {

@@ -449,24 +449,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if model.keyDown(combo) { return true }
         // The app has no main menu, so nothing else gives Command-W and the edit keys to the window.
         // ⌘V pastes the KLIPY key into its box (D14 of YAZ-2919).
-        let command = NSEvent.ModifierFlags.command
-        switch (Int(combo.keyCode), combo.modifiers) {
-        case (kVK_ANSI_W, command):
+        if combo.keyCode == UInt32(kVK_ANSI_W), combo.modifiers == .command {
             window.performClose(nil)
             return true
-        case (kVK_ANSI_V, command): return send(#selector(NSText.paste(_:)))
-        case (kVK_ANSI_C, command): return send(#selector(NSText.copy(_:)))
-        case (kVK_ANSI_X, command): return send(#selector(NSText.cut(_:)))
-        case (kVK_ANSI_A, command): return send(#selector(NSText.selectAll(_:)))
-        case (kVK_ANSI_Z, command): return send(Selector(("undo:")))
-        case (kVK_ANSI_Z, [.command, .shift]): return send(Selector(("redo:")))
-        default: return false
         }
-    }
-
-    /// Gives an edit action to the box with the keyboard.
-    private func send(_ action: Selector) -> Bool {
-        window.firstResponder?.tryToPerform(action, with: nil) ?? false
+        return EditKeys.send(combo, in: window) ?? false
     }
 
     // MARK: NSWindowDelegate

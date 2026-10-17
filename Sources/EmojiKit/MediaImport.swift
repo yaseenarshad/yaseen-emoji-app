@@ -218,17 +218,9 @@ public enum MediaImport {
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: Int(longest.rounded(.up)),
         ] as CFDictionary
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options),
-              let context = CGContext(data: nil, width: thumbnailSide, height: thumbnailSide, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { throw Failure.unreadable }
-        let scale = max(side / CGFloat(image.width), side / CGFloat(image.height))
-        let drawn = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(x: (side - drawn.width) / 2, y: (side - drawn.height) / 2,
-                                       width: drawn.width, height: drawn.height))
-        guard let square = context.makeImage() else { throw Failure.unreadable }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options), let square = square(image) else {
+            throw Failure.unreadable
+        }
 
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
@@ -239,6 +231,23 @@ public enum MediaImport {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try (data as Data).write(to: target, options: .atomic)
         return target
+    }
+
+    /// `image` as a square of 290 × 290 pixels, aspect-fill: the short side fills the square, and the long side is cut
+    /// at both ends. The still picture of your tile and of a KLIPY tile (D5, D11 of YAZ-2919).
+    static func square(_ image: CGImage) -> CGImage? {
+        let side = CGFloat(thumbnailSide)
+        guard image.width > 0, image.height > 0,
+              let context = CGContext(data: nil, width: thumbnailSide, height: thumbnailSide, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        let scale = max(side / CGFloat(image.width), side / CGFloat(image.height))
+        let drawn = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: (side - drawn.width) / 2, y: (side - drawn.height) / 2,
+                                       width: drawn.width, height: drawn.height))
+        return context.makeImage()
     }
 
     // MARK: The words of a meme (D8)
