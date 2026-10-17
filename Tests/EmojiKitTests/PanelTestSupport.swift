@@ -173,6 +173,7 @@ final class PickRig {
         AppParts(defaults: defaults, defaultFolder: folder.defaultFolder, computerName: { "Test Mac" },
                  loadCatalog: { catalog },
                  clipboard: clipboard, keys: keys, access: access, later: later,
+                 trash: FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true)),
                  makePanel: { [panel] _ in panel })
     }
 }

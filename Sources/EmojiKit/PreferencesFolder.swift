@@ -20,6 +20,9 @@ struct PreferencesFolder {
     /// This Mac's history file in `folder`.
     func ownFile(in folder: URL) -> URL { folder.appendingPathComponent(fileName) }
 
+    /// The name of this Mac's list of GIFs and memes (D3 of YAZ-2919): `library-<Mac name>.json`.
+    var libraryFileName: String { "library-\(macName).json" }
+
     /// The folder to use at the start: the chosen folder, or the default folder when none is chosen.
     /// A chosen folder that is gone or cannot be read gives the default folder, with `isMissing` true.
     func resolve(chosen: String) -> (folder: URL, isMissing: Bool) {
@@ -70,9 +73,16 @@ struct PreferencesFolder {
 
     /// True for a history file that the merge reads: `you-<A-Z a-z 0-9 ->.json`.
     /// The old `you.json`, a bad file (`you-X.bad.json`) and a copy (`you-X 2.json`) never count.
-    static func isHistoryFile(_ name: String) -> Bool {
-        guard name.hasPrefix("you-"), name.hasSuffix(".json") else { return false }
-        let middle = name.dropFirst(4).dropLast(5)
+    static func isHistoryFile(_ name: String) -> Bool { isMacFile(name, prefix: "you-") }
+
+    /// True for a list of GIFs and memes that the combine reads: `library-<A-Z a-z 0-9 ->.json` (D3 of YAZ-2919).
+    static func isLibraryFile(_ name: String) -> Bool { isMacFile(name, prefix: "library-") }
+
+    /// True for `<prefix><A-Z a-z 0-9 ->.json`: one file of one Mac. The dot of `.bad.json` and the space
+    /// of a copy are not in the safe Mac name, so these files never count.
+    private static func isMacFile(_ name: String, prefix: String) -> Bool {
+        guard name.hasPrefix(prefix), name.hasSuffix(".json") else { return false }
+        let middle = name.dropFirst(prefix.count).dropLast(5)
         return !middle.isEmpty && middle.unicodeScalars.allSatisfy {
             $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-")
         }

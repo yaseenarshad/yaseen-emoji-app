@@ -195,14 +195,8 @@ public final class YouStore {
     /// The file that `load()` moved away because it was bad, or nil.
     public private(set) var movedBadFile: URL?
 
-    /// One history file of a different Mac, and its modification date when the store read it.
-    private struct OtherFile {
-        var modified: Date
-        var you: You
-    }
-
-    /// The files of the other Macs, by file name.
-    private var others: [String: OtherFile] = [:]
+    /// The history files of the other Macs.
+    private var others = OtherMacFiles<You>()
     /// True when a bad file could not move away. Then the store never writes over it.
     private var saveIsBlocked = false
     private let now: () -> Date
@@ -220,25 +214,20 @@ public final class YouStore {
     /// A file of this Mac that cannot be read becomes `you-<Mac name>.bad.json` (or `.bad-2.json` and on),
     /// and the store starts empty. It never deletes your history in silence.
     public func load() {
-        let fileManager = FileManager.default
-        others = [:]
-        if !fileManager.fileExists(atPath: url.path) {
+        others.removeAll()
+        switch MacFiles.loadOwn(You.self, at: url) {
+        case .missing:
             own = You()
-        } else {
-            do {
-                own = try YouStore.decoder.decode(You.self, from: Data(contentsOf: url))
-            } catch {
-                let bad = YouStore.freeBadURL(next: url)
-                do {
-                    try fileManager.moveItem(at: url, to: bad)
-                    movedBadFile = bad
-                } catch {
-                    // The bad file stays in place. A save must not write over it.
-                    saveError = error
-                    saveIsBlocked = true
-                }
-                own = You()
-            }
+        case .loaded(let you):
+            own = you
+        case .movedBad(let bad):
+            movedBadFile = bad
+            own = You()
+        case .blocked(let error):
+            // The bad file stays in place. A save must not write over it.
+            saveError = error
+            saveIsBlocked = true
+            own = You()
         }
         _ = readOthers()
         applyForget()
@@ -262,12 +251,11 @@ public final class YouStore {
     public func move(to newURL: URL) throws {
         // The data in memory is empty after a bad file that could not move. It must not replace a good file.
         if saveIsBlocked, let saveError { throw saveError }
-        try FileManager.default.createDirectory(at: newURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try YouStore.encoder.encode(own).write(to: newURL, options: .atomic)
+        try MacFiles.save(own, to: newURL)
         url = newURL
         saveError = nil
         movedBadFile = nil
-        others = [:]
+        others.removeAll()
         _ = readOthers()
         applyForget()
         merge()
@@ -381,13 +369,13 @@ public final class YouStore {
     }
 
     private func merge() {
-        you = You.merge(own: own, others: others.keys.sorted().compactMap { others[$0]?.you })
+        you = You.merge(own: own, others: others.values)
     }
 
     /// A newer "Forget learned words" from any file clears the learned and added words of this Mac (D16).
     /// The store writes the time that it applied, so it clears them one time only.
     private func applyForget() {
-        let newest = ([own.forgotAt] + others.values.map(\.you.forgotAt)).compactMap { $0 }.max()
+        let newest = ([own.forgotAt] + others.values.map(\.forgotAt)).compactMap { $0 }.max()
         guard let newest, (own.forgetApplied ?? .distantPast) < newest else { return }
         own.learned = [:]
         own.added = [:]
@@ -397,36 +385,8 @@ public final class YouStore {
 
     /// Reads the history files of the other Macs that are new or changed since the last read,
     /// and forgets the files that are gone. Returns true when something changed.
-    /// A file that cannot be read keeps its last good data, and the store never changes that file.
     private func readOthers() -> Bool {
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
-        let found = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys)) ?? []
-        var seen: Set<String> = []
-        var didChange = false
-        for file in found {
-            let name = file.lastPathComponent
-            guard name != url.lastPathComponent, PreferencesFolder.isHistoryFile(name) else { continue }
-            let values = try? file.resourceValues(forKeys: Set(keys))
-            guard values?.isRegularFile == true else { continue }
-            seen.insert(name)
-            let modified = values?.contentModificationDate ?? .distantPast
-            if let known = others[name], known.modified == modified { continue }
-            guard let data = try? Data(contentsOf: file), let decoded = try? YouStore.decoder.decode(You.self, from: data) else {
-                // A half-written or broken file of a different Mac: keep the last good data, if any.
-                if var known = others[name] {
-                    known.modified = modified
-                    others[name] = known
-                }
-                continue
-            }
-            others[name] = OtherFile(modified: modified, you: decoded)
-            didChange = true
-        }
-        for name in others.keys where !seen.contains(name) {
-            others[name] = nil
-            didChange = true
-        }
-        return didChange
+        others.read(folder: folder, ownName: url.lastPathComponent, isFile: PreferencesFolder.isHistoryFile)
     }
 
     /// Writes the file atomically: a new file, then a swap. A crash never leaves half a file.
@@ -434,9 +394,7 @@ public final class YouStore {
     func save() -> Bool {
         guard !saveIsBlocked else { return false }
         do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try YouStore.encoder.encode(own).write(to: url, options: .atomic)
+            try MacFiles.save(own, to: url)
             saveError = nil
             return true
         } catch {
@@ -464,44 +422,9 @@ public final class YouStore {
         }
     }
 
-    /// `<name>.bad.json` next to the file, or `<name>.bad-2.json` and on if that name is in use.
-    /// The dot keeps the bad file out of the merge (`PreferencesFolder.isHistoryFile`).
-    static func freeBadURL(next url: URL) -> URL {
-        let folder = url.deletingLastPathComponent()
-        let base = url.deletingPathExtension().lastPathComponent
-        var number = 1
-        while true {
-            let name = number == 1 ? "\(base).bad.json" : "\(base).bad-\(number).json"
-            let candidate = folder.appendingPathComponent(name)
-            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
-            number += 1
-        }
-    }
-
     // MARK: The file format
 
     /// Dates are ISO 8601 text with milliseconds, so a person can read the file.
-    static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        encoder.dateEncodingStrategy = .custom { date, encoder in
-            var container = encoder.singleValueContainer()
-            try container.encode(date.formatted(dateStyle))
-        }
-        return encoder
-    }()
-
-    static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let text = try container.decode(String.self)
-            if let date = try? Date(text, strategy: dateStyle) { return date }
-            if let date = try? Date(text, strategy: Date.ISO8601FormatStyle()) { return date }
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Not an ISO 8601 date: \(text)")
-        }
-        return decoder
-    }()
-
-    private static let dateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    static var encoder: JSONEncoder { MacFiles.encoder }
+    static var decoder: JSONDecoder { MacFiles.decoder }
 }
