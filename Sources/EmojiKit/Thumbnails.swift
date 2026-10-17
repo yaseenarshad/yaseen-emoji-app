@@ -25,7 +25,9 @@ final class Thumbnails {
     /// Runs on the main thread when the still picture of `id` is in memory. The grid draws that tile again.
     var onLoad: (String) -> Void = { _ in }
 
-    private let cache = NSCache<NSString, NSImage>()
+    /// The still pictures in memory: your tiles by `id`, and the KLIPY tiles by URL (`KlipyResults` gets this cache).
+    /// One limit of 120 for both kinds (D11). An `id` has 16 hex characters, so it is never a URL.
+    let cache = NSCache<NSString, NSImage>()
     private var loading: Set<String> = []
     private var waiting: [Want] = []
     /// The items whose file could not give a still picture. They stay grey. A new open tries again.

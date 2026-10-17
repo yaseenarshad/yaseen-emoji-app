@@ -20,8 +20,7 @@ final class KlipyResults: OnlineResults {
     static let searchesKept = 8
     /// The KLIPY items that stay known by their slug.
     static let itemsKept = 500
-    /// The still pictures in memory (D11 of YAZ-2919), and the moving pictures (D11 update on YAZ-2925).
-    static let stillsKept = 120
+    /// The moving pictures in memory (D11 update on YAZ-2925). The still pictures share the cache of `Thumbnails`.
     static let movingKept = 30
     /// The still pictures that load at the same time, and the moving pictures.
     static let stillsAtOnce = 4
@@ -92,7 +91,8 @@ final class KlipyResults: OnlineResults {
 
     // MARK: The pictures
 
-    private let stills = NSCache<NSString, NSImage>()
+    /// The still pictures, by URL. In the app, the cache of `Thumbnails`: at most 120 stills of both kinds (D11).
+    private let stills: NSCache<NSString, NSImage>
     /// The `sm.gif` previews of the GIF tiles on the screen (D11 update on YAZ-2925).
     private let movings: MovingPictures
     private var stillsLoading: Set<URL> = []
@@ -103,7 +103,7 @@ final class KlipyResults: OnlineResults {
     private var stillItems: [URL: OnlineItem] = [:]
 
     init(library: OnlineLibrary, keys: KeyStore, later: Later, download: @escaping Download,
-         fetchPicture: @escaping FetchPicture, keptFiles: KlipyFiles? = nil,
+         fetchPicture: @escaping FetchPicture, keptFiles: KlipyFiles? = nil, stills: NSCache<NSString, NSImage>? = nil,
          sleep: @escaping SearchDebouncer.Sleep = { try await Task.sleep(for: $0) }) {
         self.library = library
         self.keys = keys
@@ -114,19 +114,24 @@ final class KlipyResults: OnlineResults {
         self.fetchPicture = fetch
         self.keptFiles = keptFiles
         debouncer = SearchDebouncer(sleep: sleep)
-        stills.countLimit = KlipyResults.stillsKept
+        self.stills = stills ?? {
+            let own = NSCache<NSString, NSImage>()
+            own.countLimit = Thumbnails.countLimit
+            return own
+        }()
         movings = MovingPictures(kept: KlipyResults.movingKept, atOnce: KlipyResults.movingAtOnce, load: fetch)
         isOn = keys.read() != nil
         movings.onLoad = { [weak self] in self?.onPicture() }
     }
 
     /// The app: KLIPY, the paste files and the pictures on one session with the 5 s time-out.
-    convenience init(keys: KeyStore, session: URLSession, pasteFiles: PasteFiles, keptFiles: KlipyFiles, later: Later,
+    convenience init(keys: KeyStore, session: URLSession, pasteFiles: PasteFiles, keptFiles: KlipyFiles,
+                     stills: NSCache<NSString, NSImage>, later: Later,
                      sleep: @escaping SearchDebouncer.Sleep = { try await Task.sleep(for: $0) }) {
         self.init(library: KlipyLibrary(keys: keys, session: session), keys: keys, later: later,
                   download: { try await pasteFiles.download($0) },
                   fetchPicture: { try await KlipyLibrary.fetch($0, session: session) },
-                  keptFiles: keptFiles, sleep: sleep)
+                  keptFiles: keptFiles, stills: stills, sleep: sleep)
     }
 
     /// Settings saved or removed the key. The key is only on this Mac (D2), so the app reads it only at the start

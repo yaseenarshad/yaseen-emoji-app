@@ -125,7 +125,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         thumbnails = Thumbnails(folder: parts.thumbnailFolder)
         pasteFiles = PasteFiles(cache: parts.cacheFolder, session: parts.onlineSession)
         klipy = KlipyResults(keys: parts.klipyKey, session: parts.onlineSession, pasteFiles: pasteFiles,
-                             keptFiles: KlipyFiles(folder: parts.klipyFolder), later: parts.later)
+                             keptFiles: KlipyFiles(folder: parts.klipyFolder), stills: thumbnails.cache, later: parts.later)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
                                  folders: folders, library: library, keyStore: parts.klipyKey)
     }
