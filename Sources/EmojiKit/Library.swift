@@ -525,7 +525,8 @@ public final class LibraryStore {
             for old in oldest.prefix(own.cards.count - LibraryStore.cardLimit) { own.cards[old.key] = nil }
         }
         save()
-        combine()
+        // Only the cards changed: the items are not combined and sorted again.
+        combineCards()
     }
 
     // MARK: The files
@@ -574,10 +575,14 @@ public final class LibraryStore {
 
     private func combine() {
         all = LibraryFile.combine(own: own, others: others.values)
-        cards = LibraryFile.combineCards(own: own, others: others.values)
+        combineCards()
         items = all.values.filter { !$0.isRemoved }.sorted { a, b in
             a.added != b.added ? a.added > b.added : a.id < b.id
         }
+    }
+
+    private func combineCards() {
+        cards = LibraryFile.combineCards(own: own, others: others.values)
     }
 
     private func readOthers() -> Bool {
