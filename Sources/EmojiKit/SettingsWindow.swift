@@ -189,7 +189,7 @@ struct SettingsView: View {
                         .truncationMode(.middle)
                         .help(model.folderPath)
                     Button("Show in Finder") { model.showPreferencesFolder() }
-                        .disabled(model.folderIsMissing)
+                        .disabled(model.folderIsMissing || model.moving != nil)
                 }
             }
             HStack {
@@ -209,9 +209,11 @@ struct SettingsView: View {
                 }
                 Button("Set preferences folder…") { model.choosePreferencesFolder() }
             }
+            .disabled(model.moving != nil)
             if model.confirming == .reset {
                 confirmBox(SettingsModel.resetQuestion, button: "Reset")
             }
+            if model.moving == .preferences { movingLine }
             if let problem = model.folderProblem {
                 Text(problem).font(.callout).foregroundStyle(.red)
             }
@@ -229,7 +231,7 @@ struct SettingsView: View {
                         .truncationMode(.middle)
                         .help(model.mediaFolderPath)
                     Button("Show in Finder") { model.showMediaFolder() }
-                        .disabled(model.mediaFolderIsMissing)
+                        .disabled(model.mediaFolderIsMissing || model.moving != nil)
                 }
             }
             Text(model.mediaFolderIsSame ? SettingsModel.mediaSameText : SettingsModel.mediaDifferentText)
@@ -243,12 +245,22 @@ struct SettingsView: View {
                 }
                 Button("Set GIFs and memes folder…") { model.chooseMediaFolder() }
             }
+            .disabled(model.moving != nil)
             if model.confirming == .resetMedia {
                 confirmBox(SettingsModel.mediaResetQuestion, button: "Reset")
             }
+            if model.moving == .media { movingLine }
             if let problem = model.mediaFolderProblem {
                 Text(problem).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Item 16 of YAZ-2929: the line of a folder row while its files move off the main thread.
+    private var movingLine: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(SettingsModel.movingText).font(.callout).foregroundStyle(.secondary)
         }
     }
 

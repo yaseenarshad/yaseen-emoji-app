@@ -119,6 +119,85 @@ import Testing
         #expect(exists(other.appendingPathComponent(file)) && !exists(sync.appendingPathComponent(file)))
     }
 
+    /// Item 16 of YAZ-2929: the copy and check of a folder move run off the main thread. While they run, the row shows
+    /// "Moving your files…", the buttons of both folder rows are off, and the pref and the list keep the old folder.
+    /// Then the row shows the result: the new folder, or the same red line as before. The test runner holds the work.
+    @Test func aFolderMoveShowsMovingThenTheResult() throws {
+        let rig = try PickRig()
+        let item = try rig.addOwn(words: ["dance"])
+        let file = try #require(item.file)
+        let home = rig.folder.defaultFolder
+        let work = HeldFileWork()
+        let model = SettingsModel(prefs: rig.prefs, hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), access: rig.access,
+                                  store: rig.store, folders: rig.folders, library: rig.library, keyStore: rig.klipyKey,
+                                  fileWork: work)
+        #expect(SettingsModel.movingText == "Moving your files…" && model.moving == nil)
+
+        // "Set GIFs and memes folder…": the move waits in the runner. Nothing changed yet.
+        let media = rig.folder.url.appendingPathComponent("media", isDirectory: true)
+        model.pickMediaFolder = { $0(media) }
+        model.chooseMediaFolder()
+        #expect(model.moving == .media && work.count == 1)
+        #expect(rig.prefs.mediaFolder.isEmpty && rig.library.mediaFolder.path == home.path)
+        #expect(exists(home.appendingPathComponent(file)) && !exists(media.appendingPathComponent(file)))
+        // A second move and a reset wait for the first one.
+        let sync = rig.folder.url.appendingPathComponent("sync", isDirectory: true)
+        model.chooseMediaFolder()
+        model.usePreferencesFolder(sync)
+        model.ask(.resetMedia)
+        model.typedConfirmation = "reset"
+        #expect(!model.canConfirm && work.count == 1 && rig.prefs.preferencesFolder.isEmpty)
+        model.cancelConfirm()
+        work.finish()
+        #expect(model.moving == nil && rig.prefs.mediaFolder == media.path && model.mediaFolderPath == media.path)
+        #expect(model.mediaFolderProblem == nil && !model.mediaFolderIsSame && rig.library.missing.isEmpty)
+        #expect(exists(media.appendingPathComponent(file)) && !exists(home.appendingPathComponent(file)))
+
+        // A failed move (a different file with the same name): moving, then the red line. The pref and the files stay.
+        let other = rig.folder.url.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: other.appendingPathComponent("gifs"), withIntermediateDirectories: true)
+        try Data("not the same".utf8).write(to: other.appendingPathComponent(file))
+        model.useMediaFolder(other)
+        #expect(model.moving == .media && model.mediaFolderProblem == nil)
+        work.finish()
+        #expect(model.moving == nil && model.mediaFolderProblem?.hasPrefix(SettingsModel.mediaNotMovedText) == true)
+        #expect(rig.prefs.mediaFolder == media.path && rig.library.mediaFolder.path == media.path)
+        #expect(exists(media.appendingPathComponent(file)))
+
+        // Back into the preferences folder, then "Set preferences folder…": the history and the list move at once.
+        // During the file move, the pref points at the old folder, where all the files still are.
+        model.useSameMediaFolder()
+        work.finish()
+        #expect(rig.prefs.mediaFolder.isEmpty && model.mediaFolderProblem == nil && exists(home.appendingPathComponent(file)))
+        model.usePreferencesFolder(sync)
+        #expect(model.moving == .preferences && work.count == 1)
+        #expect(rig.store.url == sync.appendingPathComponent("you-Test-Mac.json"))
+        #expect(rig.library.url == sync.appendingPathComponent("library-Test-Mac.json") && exists(rig.library.url))
+        #expect(rig.prefs.preferencesFolder == sync.path && model.folderPath == sync.path)
+        #expect(rig.prefs.mediaFolder == home.path && rig.library.mediaFolder.path == home.path)
+        #expect(exists(home.appendingPathComponent(file)) && !exists(sync.appendingPathComponent(file)))
+        work.finish()
+        #expect(model.moving == nil && rig.prefs.mediaFolder.isEmpty && model.mediaFolderIsSame)
+        #expect(rig.library.mediaFolder.path == sync.path && rig.library.missing.isEmpty && model.mediaFolderProblem == nil)
+        #expect(exists(sync.appendingPathComponent(file)) && !exists(home.appendingPathComponent(file)))
+    }
+
+    /// The app's runner does the work off the main thread, then gives the result (here an error) on the main actor.
+    @Test func theAppRunsTheFileWorkOffTheMainThread() async {
+        final class Seen: @unchecked Sendable {
+            var onMain: Bool?
+        }
+        let seen = Seen()
+        let runner = BackgroundFileWork()
+        let error: Error? = await withCheckedContinuation { (next: CheckedContinuation<Error?, Never>) in
+            runner.run({
+                seen.onMain = Thread.isMainThread
+                throw MediaFolder.Missing()
+            }, done: { next.resume(returning: $0) })
+        }
+        #expect(seen.onMain == false && error is MediaFolder.Missing)
+    }
+
     /// D14: "Save" puts the key into the key store (the Keychain in the app). A saved key is locked: only "Change…" then
     /// "Save" replaces it, and only "Remove…" with the typed word "remove" deletes it. An empty box saves nothing.
     /// The GIFs and Memes tabs use the new key at once. "Get a free key" opens the Partner Panel of KLIPY.
@@ -172,7 +251,7 @@ import Testing
 
         // A Keychain that refuses: the red line, and no key.
         let refusing = SettingsModel(prefs: rig.prefs, hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), access: rig.access,
-                                     store: rig.store, folders: rig.folders, library: rig.library, keyStore: RefusingKeyStore())
+                                     store: rig.store, folders: rig.folders, library: rig.library, keyStore: RefusingKeyStore(), fileWork: rig.fileWork)
         refusing.klipyKeyText = "abc"
         refusing.saveKlipyKey()
         #expect(refusing.klipyKeyProblem == SettingsModel.klipyKeyNotSavedText && !refusing.hasKlipyKey)

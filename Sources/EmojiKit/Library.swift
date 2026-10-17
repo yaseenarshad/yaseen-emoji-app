@@ -400,6 +400,11 @@ public final class LibraryStore {
     /// The caller keeps the pref `yaseenEmoji.mediaFolder` only after a move with no error.
     public func useMediaFolder(_ newFolder: URL) throws {
         try MediaFolder.move(from: mediaFolder, to: newFolder)
+        mediaFolderMoved(to: newFolder)
+    }
+
+    /// The files are in `newFolder` now (`MediaFolder.move`, which Settings runs off the main thread): the list uses it.
+    public func mediaFolderMoved(to newFolder: URL) {
         mediaFolder = newFolder
         _ = checkFiles()
     }
