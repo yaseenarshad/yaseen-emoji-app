@@ -213,7 +213,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         guard item.key != movingKey else { return }
         hideMovingTile()
         switch item {
-        case .own(let own) where own.kind == .gif && !isMissing(own):
+        case .own(let own) where own.kind == .gif:
             guard let url = session.library.fileURL(of: own) else { return }
             movingKey = item.key
             // The bytes load off the main thread. `NSImage` decodes the frames while it plays.
@@ -256,11 +256,6 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         cell.insetBy(dx: tileInset, dy: tileInset)
     }
 
-    /// True when the file of your item is not there: a grey tile, and a pick does nothing (D4 of YAZ-2919).
-    private func isMissing(_ item: Item) -> Bool {
-        session.library.mediaFolderIsMissing || session.library.missing.contains(item.id)
-    }
-
     override func draw(_ dirtyRect: NSRect) {
         let lines = session.lines
         guard !lines.isEmpty else { return }
@@ -293,8 +288,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
             (session.shown(emoji) as NSString)
                 .draw(with: textRect, options: .usesLineFragmentOrigin, attributes: EmojiGridView.emojiAttributes)
         case .own(let own):
-            let image = isMissing(own) ? nil : session.thumbnails?.image(own.id)
-            drawTile(image, in: cell, selected: selected)
+            drawTile(session.thumbnails?.image(own.id), in: cell, selected: selected)
         case .online(let online):
             drawTile(session.online?.still(for: online), in: cell, selected: selected)
             drawMark(in: EmojiGridView.tileRect(cell))
@@ -311,7 +305,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         path.stroke()
     }
 
-    /// A tile: the still picture with round corners, or a grey tile with no text (a missing file, or while it loads).
+    /// A tile: the still picture with round corners, or a grey tile with no text while it loads, or for a file with no picture.
     /// The still picture is a square already (D5), so it fills the tile.
     private func drawTile(_ image: NSImage?, in cell: NSRect, selected: Bool) {
         let tile = EmojiGridView.tileRect(cell)
@@ -349,7 +343,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
         guard let thumbnails = session.thumbnails, session.tab != .emoji else { return }
         let near = visibleRect.insetBy(dx: 0, dy: -metrics.cellSize)
         let wants = metrics.items(in: near).compactMap { index -> Thumbnails.Want? in
-            guard case .own(let own) = session.items[index], !isMissing(own), let file = session.library.fileURL(of: own)
+            guard case .own(let own) = session.items[index], let file = session.library.fileURL(of: own)
             else { return nil }
             return Thumbnails.Want(id: own.id, file: file)
         }

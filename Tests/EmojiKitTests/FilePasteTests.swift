@@ -100,16 +100,53 @@ import UniformTypeIdentifiers
         #expect(rig.clipboard.contents == (try fileItem(url, .gif, transient: false)))
     }
 
-    /// D4: a GIF whose file is missing (git did not pull it yet) shows a grey tile, and a pick does nothing.
-    @Test func aMissingFileDoesNothing() throws {
+    /// D13 update on YAZ-2926 (Yaseen: "if i want to remove it, i would just have to find it in finder and then delete it there"):
+    /// a GIF whose file you deleted in Finder does not show at the next open: not in "Your most used", "Your GIFs" or "Yours".
+    /// It stays in the list. When the file comes back (a `git pull`), it shows again at the next open.
+    @Test func aDeletedFileLeavesTheGridAndComesBack() throws {
         let rig = try PickRig()
         let gif = try rig.addOwn(words: ["dance"])
-        try FileManager.default.removeItem(at: try #require(rig.library.fileURL(of: gif)))
+        let other = try rig.addOwn(words: ["dance"], seed: 1)
+        rig.store.recordPick(gif.key, query: "")
         rig.session.willOpen = { rig.library.reload() }
+        let session = rig.session
+        session.open()
+        session.select(tab: .gifs)
+        #expect(session.items.filter { $0 == .own(gif) }.count == 2)        // "Your most used" and "Your GIFs"
+
+        let file = try #require(rig.library.fileURL(of: gif))
+        let bytes = try Data(contentsOf: file)
+        try FileManager.default.removeItem(at: file)
+        // The open panel does not list the folder again: the grid changes at the next open.
+        #expect(session.items.contains(.own(gif)))
+        session.close()
+        session.open()
+        session.select(tab: .gifs)
+        #expect(rig.library.missing == [gif.id] && rig.library.item(gif.id)?.isRemoved == false)
+        #expect(session.items == [.own(other)])
+        #expect(session.lines == [.title("Your GIFs"), .cells(0..<1)])
+        session.setQuery("dance")
+        #expect(session.items == [.own(other)])
+
+        // Git pulls the file again: the GIF is back at the next open, with its uses.
+        try bytes.write(to: file)
+        session.close()
+        session.open()
+        session.select(tab: .gifs)
+        #expect(rig.library.missing.isEmpty)
+        #expect(session.mostUsedItems == 0..<1 && session.items.first == .own(gif))
+        #expect(session.items.filter { $0 == .own(gif) }.count == 2)
+    }
+
+    /// D4: a file that goes away while the panel is open: a pick and ⌘C do nothing, and the panel stays open.
+    @Test func aPickOfAFileThatWentAwayDoesNothing() throws {
+        let rig = try PickRig()
+        let gif = try rig.addOwn(words: ["dance"])
         rig.session.open()
         rig.session.select(tab: .gifs)
-        #expect(rig.library.missing == [gif.id])
         #expect(rig.session.items == [.own(gif)] && rig.session.selection == 0)
+        try FileManager.default.removeItem(at: try #require(rig.library.fileURL(of: gif)))
+        rig.library.reload()
         rig.session.enter(shift: false)
         rig.session.copyOnly()
         rig.later.runAll()

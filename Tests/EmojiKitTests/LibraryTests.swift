@@ -127,7 +127,7 @@ import Testing
         #expect(folder.names(in: folder.defaultFolder) == ["gifs", "library-A.bad.json", "library-A.json", "library-B.json"])
     }
 
-    /// D4: a file in the list that is not on disk is missing (a grey tile). The next open checks again.
+    /// D4: a file in the list that is not on disk is missing (the panel does not show it). The next open checks again.
     /// A chosen folder that is gone: the list still loads, each own file is missing, and an add makes no folder.
     @Test func missingFilesAndAMissingFolder() throws {
         let folder = try TempFolder()

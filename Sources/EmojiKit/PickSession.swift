@@ -397,7 +397,7 @@ final class PickSession {
     }
 
     /// Puts the item with the blue box into the app in front (D2; D6 of YAZ-2919), and learns the search text (D4).
-    /// With no blue box (no results), or a GIF whose file is missing, it does nothing (D8; D4 of YAZ-2919).
+    /// With no blue box (no results), or a GIF whose file went away while the panel is open, it does nothing (D8; D4 of YAZ-2919).
     /// A KLIPY item whose paste file is not ready waits up to 3 s, with "Getting the GIF…".
     func pick(stayOpen: Bool) {
         start(.paste(stayOpen: stayOpen))
@@ -802,7 +802,7 @@ final class PickSession {
     private func buildTiles(_ kind: ItemKind, into grid: inout Grid) -> Int? {
         let entries = tiles(kind)
         if let notice { grid.lines.append(.title(notice)) }
-        // D4 of YAZ-2919: the tiles of your files are grey, and search and KLIPY still work.
+        // D4 of YAZ-2919: your files do not show (they are all missing), and search and KLIPY still work.
         if library.mediaFolderIsMissing { grid.lines.append(.title(MediaFolder.missingText)) }
         func addMostUsedAndAll() {
             let most = Search.mostUsed(of: entries + onlineEntries(kind, keys: Array(store.you.uses.keys)), you: store.you,
@@ -843,12 +843,16 @@ final class PickSession {
 
     /// The search entries of your files and your saved KLIPY items of one kind, newest first.
     /// A saved KLIPY item shows only when KLIPY gave it to this session (D7).
+    /// Your item whose file is missing does not show (D13 update on YAZ-2926): it stays in the list, and it shows
+    /// again at the next open when the file is back. `LibraryStore.missing` comes from one listing of `gifs/` and
+    /// `memes/` at each open, not from a check of each tile.
     private func tiles(_ kind: ItemKind) -> [TileEntry] {
         if let entries = tileEntries[kind] { return entries }
         var entries: [TileEntry] = []
         for item in library.items(kind) {
             let pick: PickItem
             if item.file != nil {
+                guard !library.missing.contains(item.id) else { continue }
                 pick = .own(item)
             } else if let slug = item.klipyID, let found = online?.item(slug, kind: kind) {
                 pick = .online(found)

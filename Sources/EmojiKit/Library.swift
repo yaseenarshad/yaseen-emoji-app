@@ -239,8 +239,8 @@ public final class LibraryStore {
     public private(set) var all: [String: Item] = [:]
     /// The items that are not removed, the newest add first. The panel reads this.
     public private(set) var items: [Item] = []
-    /// The `id`s of the items whose file is not in the GIFs and memes folder, for example before a `git pull`.
-    /// The panel shows a grey tile for them.
+    /// The `id`s of the items whose file is not in the GIFs and memes folder: deleted in Finder, or before a `git pull`.
+    /// The panel does not show them (D13 update on YAZ-2926).
     public private(set) var missing: Set<String> = []
     /// True when the GIFs and memes folder is gone, for example on an unmounted drive.
     public private(set) var mediaFolderIsMissing = false
