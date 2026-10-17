@@ -19,11 +19,12 @@ final class KlipyResults: OnlineResults {
     static let searchesKept = 8
     /// The KLIPY items that stay known by their slug.
     static let itemsKept = 500
-    /// The still pictures in memory (D11 of YAZ-2919), and the moving pictures.
+    /// The still pictures in memory (D11 of YAZ-2919), and the moving pictures (D11 update on YAZ-2925).
     static let stillsKept = 120
-    static let movingKept = 4
-    /// The still pictures that load at the same time.
+    static let movingKept = 30
+    /// The still pictures that load at the same time, and the moving pictures.
     static let stillsAtOnce = 4
+    static let movingAtOnce = 4
     /// The most slugs in one items call. A normal lookup has fewer, so it is one call.
     static let slugsPerCall = 50
     /// The side of a still picture in pixels: the same square as your own tiles (D5 of YAZ-2919).
@@ -91,12 +92,12 @@ final class KlipyResults: OnlineResults {
     // MARK: The pictures
 
     private let stills = NSCache<NSString, NSImage>()
-    private let movings = NSCache<NSString, NSImage>()
+    /// The `sm.gif` previews of the GIF tiles on the screen (D11 update on YAZ-2925).
+    private let movings: MovingPictures
     private var stillsLoading: Set<URL> = []
     /// The still pictures that the grid wants, the newest last.
     private var stillsWaiting: [URL] = []
     private var failedPictures: Set<URL> = []
-    private var movingLoad: (url: URL, task: Task<Void, Never>)?
 
     init(library: OnlineLibrary, keys: KeyStore, later: Later, download: @escaping Download,
          fetchPicture: @escaping FetchPicture,
@@ -108,8 +109,9 @@ final class KlipyResults: OnlineResults {
         self.fetchPicture = fetchPicture
         debouncer = SearchDebouncer(sleep: sleep)
         stills.countLimit = KlipyResults.stillsKept
-        movings.countLimit = KlipyResults.movingKept
+        movings = MovingPictures(kept: KlipyResults.movingKept, atOnce: KlipyResults.movingAtOnce, load: fetchPicture)
         isOn = keys.read() != nil
+        movings.onLoad = { [weak self] in self?.onPicture() }
     }
 
     /// The app: KLIPY, the paste files and the pictures on one session with the 5 s time-out.
@@ -134,6 +136,7 @@ final class KlipyResults: OnlineResults {
     func refresh() {
         failedLookups = [:]
         failedPictures = []
+        movings.retryFailed()
         // A search with an error does not stay: the next time, KLIPY gets the request again.
         for (key, state) in searches where state.error != nil && key != current { forget(key) }
     }
@@ -148,8 +151,7 @@ final class KlipyResults: OnlineResults {
         waiters = [:]
         hovered = nil
         hoverCount += 1
-        movingLoad?.task.cancel()
-        movingLoad = nil
+        movings.stop()
     }
 
     // MARK: Search and pages
@@ -392,29 +394,14 @@ final class KlipyResults: OnlineResults {
     }
 
     func moving(for item: OnlineItem) -> NSImage? {
-        guard let url = item.preview else { return nil }
-        if let image = movings.object(forKey: url.absoluteString as NSString) { return image }
-        guard movingLoad?.url != url, !failedPictures.contains(url) else { return nil }
-        // Only the tile with the blue box moves, so only its picture loads.
-        movingLoad?.task.cancel()
-        let fetch = fetchPicture
-        let task = Task { [weak self] in
-            let data = try? await fetch(url)
-            self?.movingCame(url, data)
-        }
-        movingLoad = (url, task)
-        return nil
+        item.preview.flatMap(movings.image(for:))
     }
 
-    private func movingCame(_ url: URL, _ data: Data?) {
-        guard movingLoad?.url == url else { return }
-        movingLoad = nil
-        guard let data, let image = NSImage(data: data) else {
-            failedPictures.insert(url)
-            return
-        }
-        movings.setObject(image, forKey: url.absoluteString as NSString)
-        onPicture()
+    /// The URLs of the previews whose load runs now. For a test.
+    var movingLoads: Set<URL> { movings.loading }
+
+    func wantMoving(_ items: [OnlineItem]) {
+        movings.want(items.compactMap(\.preview))
     }
 
     /// The grid asks for the tiles that it draws. The newest wish loads first, and only the last 24 wishes wait,

@@ -261,6 +261,7 @@ final class FakeOnline: OnlineResults {
     func getPasteFile(for item: OnlineItem, done: @escaping @MainActor (URL?) -> Void) { done(files[item.id]) }
     func still(for item: OnlineItem) -> NSImage? { nil }
     func moving(for item: OnlineItem) -> NSImage? { nil }
+    func wantMoving(_ items: [OnlineItem]) {}
     func refresh() {}
     func stop() {}
 

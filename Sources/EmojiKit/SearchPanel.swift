@@ -233,7 +233,10 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView,
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.grid.isNearEnd else { return }
+                guard let self else { return }
+                // Other GIF tiles are on the screen now (D11 update on YAZ-2925).
+                self.grid.visibleRectChanged()
+                guard self.grid.isNearEnd else { return }
                 self.session.reachedEnd()
             }
         }
@@ -262,21 +265,26 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
             panel.setFrame(PanelPlace.frame(size: panel.frame.size, visibleFrame: screen.visibleFrame), display: false)
         }
         takeKeyboard()
+        grid.startPlaying()
     }
 
+    /// The GIFs stop with the panel, so a closed panel uses no CPU (D11 update on YAZ-2925).
     func hide() {
         isSteppingAside = false
+        grid.stopPlaying()
         panel.orderOut(nil)
     }
 
     func stepAside() {
         isSteppingAside = true
+        grid.stopPlaying()
         panel.orderOut(nil)
     }
 
     func comeBack() {
         takeKeyboard()
         isSteppingAside = false
+        grid.startPlaying()
     }
 
     func reload() {

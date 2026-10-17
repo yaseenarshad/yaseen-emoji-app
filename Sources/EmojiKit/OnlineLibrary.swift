@@ -13,7 +13,7 @@ struct OnlineItem: Equatable, Sendable, Identifiable {
     let title: String
     /// The small still picture of the tile: `sm.jpg` of a GIF, `sm.png` of a meme.
     let still: URL
-    /// The small moving picture of the tile with the blue box: `sm.gif`. Nil for a meme.
+    /// The small moving picture of a GIF tile on the screen: `sm.gif` (D11 update on YAZ-2925). Nil for a meme.
     let preview: URL?
     /// The file that a pick pastes: `md.gif` (else `hd`, else `sm`) of a GIF, `hd.png` (else `md`, else `sm`) of a meme.
     let file: URL

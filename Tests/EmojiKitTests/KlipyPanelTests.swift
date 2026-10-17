@@ -20,7 +20,8 @@ final class KlipyRig {
     var session: PickSession { rig.session }
 
     /// `download` replaces the real download of the paste file, for a test of a slow file.
-    init(key: Bool = true, download: KlipyResults.Download? = nil) throws {
+    /// With a `gate`, each picture fetch waits until the test lets it go.
+    init(key: Bool = true, download: KlipyResults.Download? = nil, gate: PictureGate? = nil) throws {
         let network = StubNetwork { _ in .fail(.badServerResponse) }
         let keys = FakeKeyStore(key ? network.key : nil)
         let pause = ManualSleep()
@@ -30,7 +31,10 @@ final class KlipyRig {
         let session = network.session
         klipy = KlipyResults(library: KlipyLibrary(keys: keys, session: session), keys: keys, later: clock,
                              download: download ?? { try await files.download($0) },
-                             fetchPicture: { try await KlipyLibrary.fetch($0, session: session) },
+                             fetchPicture: { url in
+                                 guard let gate else { return try await KlipyLibrary.fetch(url, session: session) }
+                                 return try await gate.fetch(url) { try await KlipyLibrary.fetch($0, session: session) }
+                             },
                              sleep: { try await pause.sleep($0) })
         self.network = network
         self.keys = keys
@@ -406,5 +410,65 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         #expect(rig.folder.names(in: paste) == ["new"])
         app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
         #expect(rig.folder.names(in: paste).isEmpty)
+    }
+
+    /// D11 update on YAZ-2925 ("so that they all play"): the `sm.gif` previews of the KLIPY tiles on the screen load
+    /// at most 4 at a time, in the order of the grid. A scroll stops the loads of the tiles that left the screen.
+    /// The close of the panel stops all loads. The previews come from the stub network, through a gate.
+    @Test func theMovingPicturesLoad4AtATimeAndStopOffTheScreen() async throws {
+        let gate = PictureGate()
+        let klipy = try KlipyRig(gate: gate)
+        let slugs = (0..<24).map { "shaq-\($0)" }
+        let page = klipyPage(klipy, slugs, hasNext: false)
+        let gif = makeTestImage(width: 22, height: 22, type: .gif, frames: 2)
+        klipy.network.setReply { request in
+            request.url?.host == "static.klipy.com" ? .answer(status: 200, body: gif) : .json(page)
+        }
+        await klipy.search("shaq")
+        let items = klipy.session.items.compactMap { item -> OnlineItem? in
+            if case .online(let online) = item { return online }
+            return nil
+        }
+        #expect(items.map(\.id) == slugs)
+        let previews = try items.map { try #require($0.preview) }
+        #expect(previews[0].lastPathComponent == "sm.gif")
+        var pictures = 0
+        klipy.klipy.onPicture = { pictures += 1 }
+
+        // 12 tiles on the screen: the first 4 load.
+        klipy.klipy.wantMoving(Array(items[0..<12]))
+        await waitUntil { gate.waiting.count == 4 }
+        #expect(gate.waiting == Set(previews[0..<4]))
+        #expect(klipy.klipy.movingLoads == Set(previews[0..<4]))
+
+        // A scroll: tiles 6 to 17 are on the screen. The loads of tiles 0 to 3 stop, and tiles 6 to 9 load.
+        klipy.klipy.wantMoving(Array(items[6..<18]))
+        await waitUntil { gate.waiting == Set(previews[6..<10]) }
+        #expect(gate.waiting == Set(previews[6..<10]))
+        #expect(Set(gate.cancelled) == Set(previews[0..<4]))
+        #expect(klipy.klipy.movingLoads == Set(previews[6..<10]))
+
+        // Each picture that comes lets the next tile in the order of the grid load.
+        for batch in [10..<14, 14..<18] {
+            gate.releaseAll()
+            await waitUntil { gate.waiting == Set(previews[batch]) }
+            #expect(gate.waiting == Set(previews[batch]))
+        }
+        gate.releaseAll()
+        await waitUntil { klipy.klipy.movingLoads.isEmpty }
+        #expect(gate.mostAtOnce == KlipyResults.movingAtOnce && KlipyResults.movingAtOnce == 4)
+        #expect(pictures == 12)
+        #expect((6..<18).allSatisfy { klipy.klipy.moving(for: items[$0]) != nil })
+        #expect((0..<6).allSatisfy { klipy.klipy.moving(for: items[$0]) == nil })
+        #expect(klipy.requests("media").count == 12)
+        #expect(KlipyResults.movingKept == 30)
+
+        // The tiles in memory do not load again. The close of the panel stops the loads that run.
+        klipy.klipy.wantMoving(Array(items[12..<24]))
+        await waitUntil { gate.waiting == Set(previews[18..<22]) }
+        klipy.session.close()
+        await waitUntil { klipy.klipy.movingLoads.isEmpty && gate.waiting.isEmpty }
+        #expect(Set(gate.cancelled) == Set(previews[0..<4] + previews[18..<22]))
+        #expect(klipy.requests("media").count == 12)
     }
 }

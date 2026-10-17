@@ -165,6 +165,61 @@ final class ManualSleep: @unchecked Sendable {
     }
 }
 
+/// A picture fetch that waits until the test lets it go (D11 update on YAZ-2925). Thus a test sees which loads
+/// run at the same time. A cancelled fetch throws `CancellationError`. A fetch that the test lets go asks `then`
+/// (the stub network), so no test goes online.
+final class PictureGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [UUID: (url: URL, continuation: CheckedContinuation<Void, Error>)] = [:]
+    private var startedURLs: [URL] = []
+    private var cancelledURLs: [URL] = []
+    private var most = 0
+
+    /// Each fetch that started, in the order of the start.
+    var started: [URL] { lock.withLock { startedURLs } }
+    /// The fetches that stopped because their task was cancelled.
+    var cancelled: [URL] { lock.withLock { cancelledURLs } }
+    /// The fetches that wait now.
+    var waiting: Set<URL> { lock.withLock { Set(waiters.values.map(\.url)) } }
+    /// The most fetches that waited at the same time.
+    var mostAtOnce: Int { lock.withLock { most } }
+
+    func fetch(_ url: URL, then: @Sendable (URL) async throws -> Data) async throws -> Data {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                lock.withLock {
+                    startedURLs.append(url)
+                    if Task.isCancelled {
+                        cancelledURLs.append(url)
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        waiters[id] = (url, continuation)
+                        most = max(most, waiters.count)
+                    }
+                }
+            }
+        } onCancel: {
+            let waiter = lock.withLock { () -> (url: URL, continuation: CheckedContinuation<Void, Error>)? in
+                guard let waiter = waiters.removeValue(forKey: id) else { return nil }
+                cancelledURLs.append(waiter.url)
+                return waiter
+            }
+            waiter?.continuation.resume(throwing: CancellationError())
+        }
+        return try await then(url)
+    }
+
+    /// Lets each fetch that waits now go on.
+    func releaseAll() {
+        let all = lock.withLock { () -> [CheckedContinuation<Void, Error>] in
+            defer { waiters.removeAll() }
+            return waiters.values.map(\.continuation)
+        }
+        for continuation in all { continuation.resume() }
+    }
+}
+
 /// Lets the other tasks run until `condition` is true. It gives up after about 3 s, so a fault fails the test
 /// and does not hang it. It is not a wait for the 350 ms pause: the pause ends only with `ManualSleep.wake()`.
 @MainActor

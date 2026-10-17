@@ -38,8 +38,11 @@ protocol OnlineResults: AnyObject {
     func getPasteFile(for item: OnlineItem, done: @escaping @MainActor (URL?) -> Void)
     /// The still picture of a KLIPY tile, or nil while it loads.
     func still(for item: OnlineItem) -> NSImage?
-    /// The moving picture of the tile with the blue box, or nil.
+    /// The moving picture (`sm.gif`) of a KLIPY GIF tile when it is in memory, or nil (D11 update on YAZ-2925).
     func moving(for item: OnlineItem) -> NSImage?
+    /// The KLIPY GIF tiles on the screen, in the order of the grid. Their moving pictures load, at most 4 at a time.
+    /// The loads of the other tiles stop. An empty list stops all.
+    func wantMoving(_ items: [OnlineItem])
     /// Each open of the panel: tries again what failed.
     func refresh()
     /// Each close of the panel: stops the search that waits, and the downloads.

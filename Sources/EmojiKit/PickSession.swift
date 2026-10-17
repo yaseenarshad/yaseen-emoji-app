@@ -51,6 +51,9 @@ enum PickItem: Equatable {
         }
     }
 
+    /// True for a GIF: its tile plays while it is on the screen (D11 update on YAZ-2925). A meme and an emoji stay still.
+    var plays: Bool { kind == .gif }
+
     /// True for the same emoji (the same text), or the same GIF or meme (the same key).
     func isSame(as other: PickItem) -> Bool {
         if let emoji, let otherEmoji = other.emoji { return emoji.text == otherEmoji.text }
