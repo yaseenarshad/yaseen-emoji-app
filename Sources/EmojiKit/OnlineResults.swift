@@ -40,7 +40,7 @@ protocol OnlineResults: AnyObject {
     func still(for item: OnlineItem) -> NSImage?
     /// The moving picture of the tile with the blue box, or nil.
     func moving(for item: OnlineItem) -> NSImage?
-    /// Each open of the panel: reads the key again, and tries again what failed.
+    /// Each open of the panel: tries again what failed.
     func refresh()
     /// Each close of the panel: stops the search that waits, and the downloads.
     func stop()

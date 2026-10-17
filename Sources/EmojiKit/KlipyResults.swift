@@ -121,8 +121,17 @@ final class KlipyResults: OnlineResults {
                   sleep: sleep)
     }
 
-    func refresh() {
+    /// Settings saved or removed the key. The key is only on this Mac (D2), so the app reads it only at the start
+    /// and here, not at each open. The searches of the old key go.
+    func keyChanged() {
         isOn = keys.read() != nil
+        stop()
+        searches = [:]
+        searchOrder = []
+        failedLookups = [:]
+    }
+
+    func refresh() {
         failedLookups = [:]
         failedPictures = []
         // A search with an error does not stay: the next time, KLIPY gets the request again.

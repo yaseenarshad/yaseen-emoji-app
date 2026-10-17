@@ -189,6 +189,7 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
 
         // A key in Settings: the next open searches KLIPY.
         try klipy.keys.write(klipy.network.key)
+        klipy.klipy.keyChanged()
         session.close()
         session.open()
         session.select(tab: .memes)

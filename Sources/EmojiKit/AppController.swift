@@ -207,7 +207,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         settings.onHotKeyChanged = { [weak self] hotKey in self?.statusMenu.showHotKey(hotKey) }
         settings.onTonesChanged = { [weak self] in self?.panel?.reload() }
         // A new or removed KLIPY key: the GIFs and Memes tabs search KLIPY, or stop (D2 of YAZ-2919).
-        settings.onKlipyKeyChanged = { [weak self] in self?.klipy.refresh() }
+        settings.onKlipyKeyChanged = { [weak self] in self?.klipy.keyChanged() }
         hotKeys.onHotKey = { [weak self] kind in
             // macOS calls this on the main thread.
             MainActor.assumeIsolated {
