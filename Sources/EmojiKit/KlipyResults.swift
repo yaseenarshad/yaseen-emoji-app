@@ -28,8 +28,6 @@ final class KlipyResults: OnlineResults {
     static let movingAtOnce = 4
     /// The most slugs in one items call. A normal lookup has fewer, so it is one call.
     static let slugsPerCall = 50
-    /// The side of a still picture in pixels: the same square as your own tiles (D5 of YAZ-2919).
-    nonisolated static let stillSide = 290
 
     typealias Download = @Sendable (OnlineItem) async throws -> URL
     typealias FetchPicture = @Sendable (URL) async throws -> Data
@@ -484,7 +482,7 @@ final class KlipyResults: OnlineResults {
         stillsLoading.remove(url)
         let item = stillItems.removeValue(forKey: url)
         if let image {
-            let side = CGFloat(KlipyResults.stillSide) / 2
+            let side = CGFloat(MediaImport.thumbnailSide) / 2
             stills.setObject(NSImage(cgImage: image, size: NSSize(width: side, height: side)), forKey: url.absoluteString as NSString)
             onPicture()
         } else {
@@ -502,20 +500,10 @@ final class KlipyResults: OnlineResults {
         return await Task.detached(priority: .utility) { square(data) }.value
     }
 
-    /// The picture in `data`, cut to a square of `stillSide` pixels from its middle.
+    /// The picture in `data`, cut to the square of your own tiles (`MediaImport.square`).
     nonisolated static func square(_ data: Data) -> CGImage? {
-        let side = stillSide
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil), image.width > 0, image.height > 0,
-              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return nil }
-        let scale = max(CGFloat(side) / CGFloat(image.width), CGFloat(side) / CGFloat(image.height))
-        let width = CGFloat(image.width) * scale
-        let height = CGFloat(image.height) * scale
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(x: (CGFloat(side) - width) / 2, y: (CGFloat(side) - height) / 2, width: width, height: height))
-        return context.makeImage()
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return MediaImport.square(image)
     }
 }
