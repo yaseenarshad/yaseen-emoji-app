@@ -99,6 +99,75 @@ import Testing
         #expect(combined["a"] == newer && combined["b"]?.key == "klipy:9")
     }
 
+    /// A card of D18 of YAZ-2919 with this slug and last use.
+    private func card(_ slug: String, title: String = "", used: Date) -> KlipyCard {
+        let base = URL(string: "https://static.klipy.com/ii/\(slug)")!
+        return KlipyCard(slug: slug, kind: .gif, title: title, still: base.appendingPathComponent("sm.jpg"),
+                         preview: base.appendingPathComponent("sm.gif"), file: base.appendingPathComponent("md.gif"),
+                         fileType: "com.compuserve.gif", fileExtension: "gif", width: 498, height: 498, bytes: 836_000,
+                         lastUsed: used)
+    }
+
+    /// D18 of YAZ-2919: the cards sync in `library-<Mac>.json`. For each `klipy:<slug>`, the newest `lastUsed` wins.
+    /// A list file of an earlier build has no `cards` and loads. A card that cannot be read is skipped, and the rest
+    /// of the file loads. Each Mac writes only its own file.
+    @Test func theCardsSyncAndTheNewestUseWins() throws {
+        let folder = try TempFolder()
+        let clock = StepClock()
+        let macA = store("A", in: folder, clock: clock)
+        let macB = store("B", in: folder, clock: clock)
+        macA.load()
+        macB.load()
+        let time = Date(timeIntervalSince1970: 1_700_000_000)
+        macA.useCard(card("shaq-dance", title: "Shaq A", used: time))
+        macB.useCard(card("shaq-dance", title: "Shaq B", used: time))
+        macA.useCard(card("hello-hi", used: time))
+        #expect(macA.card("shaq-dance")?.title == "Shaq A")
+        #expect(macA.cards.keys.sorted() == ["klipy:hello-hi", "klipy:shaq-dance"])
+        // B used it later: at A's next open, B's card wins.
+        #expect(macA.reload())
+        #expect(macA.card("shaq-dance")?.title == "Shaq B" && macA.own.cards["klipy:shaq-dance"]?.title == "Shaq A")
+        macB.reload()
+        #expect(macB.card("shaq-dance")?.title == "Shaq B" && macB.cards.count == 2 && macB.own.cards.count == 1)
+        // A pick fixes the last use with the clock of the store, and a card of the migration keeps its own.
+        #expect(macA.card("hello-hi")!.lastUsed > time)
+        macA.addCard(card("old-1", used: time))
+        macA.addCard(card("old-1", title: "again", used: time.addingTimeInterval(9)))
+        #expect(macA.card("old-1")?.lastUsed == time && macA.card("old-1")?.title == "")
+        #expect(KlipyCard.winner(card("x", title: "a", used: time), card("x", title: "b", used: time)).title == "b")
+
+        // An earlier build: no `cards`. A bad card: skipped, with the items and the good cards.
+        let old = #"{"items": {}}"#
+        #expect(try MacFiles.decoder.decode(LibraryFile.self, from: Data(old.utf8)).cards.isEmpty)
+        var text = try String(contentsOf: macA.url, encoding: .utf8)
+        text = text.replacingOccurrences(of: #""slug" : "old-1""#, with: #""slug" : 7"#)
+        try Data(text.utf8).write(to: macA.url)
+        let again = store("A", in: folder, clock: clock)
+        again.load()
+        #expect(again.movedBadFile == nil && again.own.cards.keys.sorted() == ["klipy:hello-hi", "klipy:shaq-dance"])
+    }
+
+    /// D18 of YAZ-2919: this Mac's file keeps at most 2,000 cards. A write drops the least recently used card.
+    @Test func atMost2000CardsInThisMacsFile() throws {
+        let folder = try TempFolder()
+        let clock = StepClock()
+        let url = folder.defaultFolder.appendingPathComponent("library-A.json")
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var cards: [String: KlipyCard] = [:]
+        for place in 0..<LibraryStore.cardLimit {
+            let new = card("c\(place)", used: start.addingTimeInterval(TimeInterval(place)))
+            cards[new.key] = new
+        }
+        try FileManager.default.createDirectory(at: folder.defaultFolder, withIntermediateDirectories: true)
+        try MacFiles.save(LibraryFile(cards: cards), to: url)
+        let macA = store("A", in: folder, clock: clock)
+        macA.load()
+        #expect(macA.cards.count == 2_000)
+        macA.useCard(card("new-1", used: start))
+        #expect(macA.own.cards.count == 2_000 && macA.card("c0") == nil && macA.card("c1") != nil && macA.card("new-1") != nil)
+        #expect(try MacFiles.decoder.decode(LibraryFile.self, from: Data(contentsOf: url)).cards.count == 2_000)
+    }
+
     /// D3: a bad list of this Mac moves to `library-<Mac>.bad.json`, and the store starts empty.
     /// A bad list of a different Mac keeps its last good data.
     @Test func aBadListMovesAwayAndABadOtherListKeepsItsData() throws {
