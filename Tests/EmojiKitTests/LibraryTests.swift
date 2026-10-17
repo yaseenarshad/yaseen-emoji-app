@@ -303,4 +303,43 @@ import Testing
         #expect(app.library.items.map(\.id) == [item.id])
         app.session?.close()
     }
+
+    /// The list of 2,000 items and 2,000 KLIPY cards (D3, D18 of YAZ-2919): the size of the file, the load at the
+    /// start, the save at each KLIPY pick (`useCard`), and the memory of the loaded list. The numbers go into the
+    /// Result comment. Other tests run at the same time, so the numbers are only a measure, not a check.
+    @Test func theTimeAndMemoryOfAListOf2000ItemsAndCards() throws {
+        let folder = try TempFolder()
+        let clock = StepClock()
+        var file = LibraryFile()
+        for place in 0..<2_000 {
+            let id = String(format: "%016x", place)
+            file.items[id] = Item(id: id, kind: place % 2 == 0 ? .gif : .meme, file: "gifs/\(id).gif", klipyID: nil,
+                                  words: ["dance", "party \(place)", "happy"], title: "item \(place)",
+                                  added: clock.now(), changed: clock.now())
+            let slug = "klipy-gif-\(place)"
+            let media = "https://static.klipy.com/ii/0123456789abcdef/\(place)"
+            let card = KlipyCard(slug: slug, kind: .gif, title: "KLIPY GIF \(place)",
+                                 still: URL(string: "\(media)/sm.jpg")!, preview: URL(string: "\(media)/sm.gif")!,
+                                 file: URL(string: "\(media)/md.gif")!, fileType: "com.compuserve.gif", fileExtension: "gif",
+                                 width: 498, height: 280, bytes: 836_000, lastUsed: clock.now())
+            file.cards[card.key] = card
+        }
+        let url = folder.defaultFolder.appendingPathComponent("library-A.json")
+        try MacFiles.save(file, to: url)
+        let bytes = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+
+        let load = medianMilliseconds(runs: 5) {
+            LibraryStore(url: url, mediaFolder: folder.defaultFolder, now: clock.now).load()
+        }
+        let before = memoryFootprint()
+        let store = LibraryStore(url: url, mediaFolder: folder.defaultFolder, now: clock.now)
+        store.load()
+        let after = memoryFootprint()
+        let card = try #require(store.card("klipy-gif-7"))
+        let pick = medianMilliseconds(runs: 9) { store.useCard(card) }
+        print("TIMING [\(buildKind)] list of 2000 items and 2000 cards: file \(bytes) bytes; load median "
+              + "\(String(format: "%.1f", load)) ms; save at a KLIPY pick median \(String(format: "%.1f", pick)) ms; "
+              + "MEMORY footprint \(String(format: "%.1f", (Double(after) - Double(before)) / 1_000_000)) MB more")
+        #expect(store.items.count == 2_000 && store.cards.count == 2_000)
+    }
 }
