@@ -3,20 +3,18 @@ import Testing
 @testable import EmojiKit
 
 /// The list of GIFs and memes (YAZ-2921, D3 and D4 of YAZ-2919): one `library-<Mac>.json` for each Mac,
-/// combined on each Mac, and the files in `gifs/` and `memes/`. Each test has its own temp folder and a fake Trash.
-/// No test reads the real preferences folder or the real Trash.
+/// combined on each Mac, and the files in `gifs/` and `memes/`. Each test has its own temp folder.
+/// No test reads the real preferences folder.
 @Suite struct LibraryTests {
     /// A small file that the store keeps as it is. The store does not read the bytes.
     private func gif(_ text: String) -> PreparedFile {
         PreparedFile(bytes: Data("GIF89a \(text)".utf8), ext: "gif", kind: .gif)
     }
 
-    private func store(_ mac: String, in folder: TempFolder, clock: StepClock, trash: FakeTrash? = nil,
-                       media: URL? = nil) -> LibraryStore {
+    private func store(_ mac: String, in folder: TempFolder, clock: StepClock, media: URL? = nil) -> LibraryStore {
         let preferences = folder.defaultFolder
         return LibraryStore(url: preferences.appendingPathComponent("library-\(mac).json"),
-                            mediaFolder: media ?? preferences,
-                            trash: trash ?? FakeTrash(folder: folder.url.appendingPathComponent("Trash")), now: clock.now)
+                            mediaFolder: media ?? preferences, now: clock.now)
     }
 
     @Test func theNamesOfTheListFiles() {
@@ -37,9 +35,8 @@ import Testing
     @Test func twoMacsAddRemoveAndAddAgain() throws {
         let folder = try TempFolder()
         let clock = StepClock()
-        let trash = FakeTrash(folder: folder.url.appendingPathComponent("Trash"))
         let macA = store("A", in: folder, clock: clock)
-        let macB = store("B", in: folder, clock: clock, trash: trash)
+        let macB = store("B", in: folder, clock: clock)
         macA.load()
         macB.load()
 
@@ -58,9 +55,10 @@ import Testing
         #expect(again == .alreadyThere(macB.item(dance.id)!))
         #expect(macB.items.count == 1 && macB.items[0].words == ["dance", "party", "moves"])
 
-        // B removes it later: the file goes to the Trash, and B writes the remove into its own list.
-        try macB.remove(dance.id)
-        #expect(trash.trashed == ["\(dance.id).gif"])
+        // B removes it later (an earlier build had "Move to Trash"): B writes the remove into its own list.
+        // The store touches no file.
+        macB.remove(dance.id)
+        #expect(FileManager.default.fileExists(atPath: file.path))
         #expect(macB.items.isEmpty && macB.item(dance.id)?.isRemoved == true)
         #expect(macA.reload())
         #expect(macA.items.isEmpty && macA.item(dance.id)?.isRemoved == true)
@@ -151,16 +149,11 @@ import Testing
         #expect(macA.missing.isEmpty)
         #expect(!macA.reload())          // nothing changed
 
-        // A KLIPY item has no file: its remove calls no Trash.
-        let trash = FakeTrash(folder: folder.url.appendingPathComponent("Trash"))
-        let macB = store("B", in: folder, clock: clock, trash: trash)
+        // "Remove from your GIFs" of a saved KLIPY item: it is removed on Mac B, and your own item stays.
+        let macB = store("B", in: folder, clock: clock)
         macB.load()
-        try macB.remove(saved.id)
-        #expect(trash.trashed.isEmpty && macB.item(saved.id)?.isRemoved == true)
-        // The Trash refuses a file: the item stays.
-        trash.refuses = true
-        #expect(throws: FakeTrash.Refused.self) { try macB.remove(item.id) }
-        #expect(macB.item(item.id)?.isRemoved == false)
+        macB.remove(saved.id)
+        #expect(macB.item(saved.id)?.isRemoved == true && macB.item(item.id)?.isRemoved == false)
 
         // The chosen GIFs and memes folder is gone (an unmounted drive).
         let gone = folder.url.appendingPathComponent("Drive/GIFs", isDirectory: true)

@@ -123,7 +123,7 @@ The parts of `EmojiKit`:
 - `YouStore.swift`: `You` (the contents of one history file), `You.merge` (the history of all Macs), and `YouStore` (this Mac's file, the files of the other Macs, reload, atomic save, the 5,000 learned pairs, the hidden emojis of "Your most used", the synced settings, the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
 - `PreferencesFolder`: the preferences folder (D16): the Mac name, the file names, the missing folder, and the first copy of this Mac's file.
 - `MacFiles.swift`: the parts that `YouStore` and `LibraryStore` share: the load of this Mac's file with the move of a bad file, the atomic save, the JSON format, and `OtherMacFiles` (reads only the changed files of the other Macs).
-- `Library.swift`: `Item` (one GIF or meme), `LibraryFile` (one `library-<Mac name>.json`), `LibraryStore` (this Mac's list, the lists of the other Macs, the add of a file, the remove to the Trash, the missing files), and `MediaFolder` (the GIFs and memes folder and its move). `Trash` is a protocol, so a test never touches the real Trash.
+- `Library.swift`: `Item` (one GIF or meme), `LibraryFile` (one `library-<Mac name>.json`), `LibraryStore` (this Mac's list, the lists of the other Macs, the add of a file, the remove of a saved KLIPY item, the missing files), and `MediaFolder` (the GIFs and memes folder and its move). The app never deletes a file of `gifs/` or `memes/`: you delete it in Finder.
 - `MediaImport`: the add of a file (D5 and D8 of YAZ-2919): the kind from the bytes, MP4 and MOV to GIF, the 10 MB limit, the still picture of a tile, and the words of a meme with Vision. Each call runs off the main thread.
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
 - `AddCommand`: `--add-media`, the add of GIFs and memes from the Terminal.
@@ -149,7 +149,7 @@ The parts of `EmojiKit`:
 - A test opens no window and uses no mouse and no keyboard. A test posts no key event.
 - A test never registers a real hotkey or a real login item. It uses a fake one.
 - A test never reads or changes the real clipboard. It uses a fake one. The paste of the add window reads a `ClipboardContents` in the test.
-- A test never touches the real Trash. It uses `FakeTrash` in a temp folder. The videos and pictures of the import tests are made in the test.
+- The videos and pictures of the import tests are made in the test.
 - A test never makes a real network request. It uses `StubNetwork`, a `URLProtocol` stub. A test never touches the real Keychain. It uses `FakeKeyStore`. `KlipyRig` puts `KlipyResults` on a stub network with a `ManualSleep` for the pause and a `FakeLater` for the prefetch and the 3 s wait.
 - A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
 - Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search of the emojis and of 2,000 made-up GIFs, and the change of a 5 s MP4 to a GIF. A `MEMORY` line gives the memory of 120 still pictures. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.

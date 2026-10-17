@@ -62,14 +62,6 @@ final class Thumbnails {
         failed = []
     }
 
-    /// Deletes the still picture of a removed item, in memory and on disk (D5).
-    func removeStill(of id: String) {
-        cache.removeObject(forKey: id as NSString)
-        removedDone.insert(id)
-        let folder = self.folder
-        Task.detached(priority: .utility) { MediaImport.removeThumbnail(of: id, in: folder) }
-    }
-
     /// Deletes the still pictures of the items that are removed, on this Mac or on a different Mac (D3, D5).
     /// The panel calls it at each open. An item is done one time only.
     func removeStills(ofRemoved items: some Sequence<Item>) {

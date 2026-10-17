@@ -16,8 +16,6 @@ struct AppParts {
     var keys: KeySender
     var access: PasteAccess
     var later: Later
-    /// The Trash for "Move to Trash" of a GIF or meme (D13 of YAZ-2919).
-    var trash: Trash
     /// The still pictures of the tiles (D5 of YAZ-2919): `~/Library/Caches/Yaseen Emoji/thumbs` in the app.
     var thumbnailFolder: URL
     /// "Show in Finder" of a GIF or meme (D13 of YAZ-2919).
@@ -41,7 +39,6 @@ struct AppParts {
             keys: SystemKeySender(),
             access: SystemPasteAccess(),
             later: MainQueueLater(),
-            trash: SystemTrash(),
             thumbnailFolder: MediaImport.defaultThumbnailFolder,
             showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([$0]) },
             klipyKey: KeychainKeyStore(),
@@ -118,8 +115,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         store = YouStore(url: folders.ownFile(in: place.folder))
         // The list stays in the preferences folder. The files are in the GIFs and memes folder (D4 of YAZ-2919).
         let media = MediaFolder.resolve(chosen: prefs.mediaFolder, preferencesFolder: place.folder)
-        library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder,
-                               trash: parts.trash)
+        library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder)
         addModel = AddModel(library: library)
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
         thumbnails = Thumbnails(folder: parts.thumbnailFolder)

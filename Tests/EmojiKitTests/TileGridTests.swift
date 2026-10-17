@@ -46,8 +46,8 @@ import Testing
         #expect(kept.contains(299) && !kept.contains(0))
     }
 
-    /// A still picture loads off the main thread into the cache. "Move to Trash" deletes it (D5), and the remove
-    /// of a different Mac deletes it at the next open (owner note on YAZ-2925).
+    /// A still picture loads off the main thread into the cache. The remove of an item on a different Mac
+    /// (or in an earlier build) deletes it at the next open (D5, owner note on YAZ-2925).
     @Test func theStillPictureLoadsAndGoesWithItsItem() async throws {
         let rig = try PickRig()
         let gif = try rig.addOwn(words: ["dance"])
@@ -66,18 +66,14 @@ import Testing
 
         rig.session.open()
         rig.session.select(tab: .gifs)
-        rig.session.moveToTrash(.own(gif))
-        #expect(rig.thumbnails.image(gif.id) == nil)
-        await waitUntil { !FileManager.default.fileExists(atPath: still.path) }
-        #expect(!FileManager.default.fileExists(atPath: still.path))
 
         // Mac B removes the other GIF. This Mac sees it at the next open, and deletes its still picture.
         let otherStill = rig.thumbnails.folder.appendingPathComponent("\(other.id).png")
         #expect(FileManager.default.fileExists(atPath: otherStill.path))
         let macB = LibraryStore(url: rig.folder.defaultFolder.appendingPathComponent("library-B.json"),
-                                mediaFolder: rig.folder.defaultFolder, trash: rig.trash, now: { Date(timeIntervalSince1970: 1_900_000_000) })
+                                mediaFolder: rig.folder.defaultFolder, now: { Date(timeIntervalSince1970: 1_900_000_000) })
         macB.load()
-        try macB.remove(other.id)
+        macB.remove(other.id)
         rig.session.close()
         rig.session.open()
         rig.session.select(tab: .gifs)

@@ -136,9 +136,9 @@ import Testing
         session.select(tab: .gifs)
 
         // Your GIF in "Your most used", and the same GIF in "Your GIFs".
-        #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .hideFromMostUsed, .showInFinder, .moveToTrash, .addNew])
+        #expect(session.menuActions(at: 0) == [.addWord, .copyOnly, .hideFromMostUsed, .showInFinder, .addNew])
         let inList = try #require(session.items.indices.first { $0 > 0 && session.items[$0] == .own(gif) })
-        #expect(session.menuActions(at: inList) == [.addWord, .copyOnly, .showInFinder, .moveToTrash, .addNew])
+        #expect(session.menuActions(at: inList) == [.addWord, .copyOnly, .showInFinder, .addNew])
         // The saved KLIPY item shows in "Your GIFs".
         let savedPlace = try rig.place(of: "klipy:saved-1")
         #expect(session.menuActions(at: savedPlace) == [.addWord, .copyOnly, .removeFromYours(.gif), .addNew])
@@ -310,7 +310,7 @@ import Testing
         #expect(lines.count == 4 && lines[3].hasPrefix("notes.txt: ") && lines[3].hasSuffix(MediaImport.wrongTypeText))
 
         let library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
-                                   mediaFolder: folder.defaultFolder, trash: FakeTrash(folder: folder.url))
+                                   mediaFolder: folder.defaultFolder)
         library.load()
         #expect(library.items(.gif).map(\.words) == [["dance", "party"]])
         #expect(library.items(.meme).map(\.words) == [["happy", "dance"]])

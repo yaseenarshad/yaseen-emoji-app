@@ -27,7 +27,7 @@ public struct Item: Codable, Equatable, Sendable {
     /// The words of the item: typed at add, or read from a meme (D8). "Forget learned words" keeps them.
     public var words: [String]
     public var added: Date
-    /// The time of "Move to Trash" or "Remove from your GIFs", or nil.
+    /// The time of "Remove from your GIFs" (or of "Move to Trash" in an earlier build), or nil.
     public var removed: Date?
     /// The time of the last change. The newest change of all Macs wins (D3).
     public var changed: Date
@@ -143,20 +143,6 @@ public enum AddResult: Equatable, Sendable {
     }
 }
 
-/// Moves a file to the Trash. A protocol, so a test never touches the real Trash.
-public protocol Trash {
-    func moveToTrash(_ url: URL) throws
-}
-
-/// The macOS Trash (`FileManager.trashItem`). "Put Back" in Finder undoes it.
-public struct SystemTrash: Trash {
-    public init() {}
-
-    public func moveToTrash(_ url: URL) throws {
-        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-    }
-}
-
 /// The GIFs and memes folder of D4 on YAZ-2919: the place of `gifs/` and `memes/`.
 /// The list file stays in the preferences folder, also when the files move.
 public enum MediaFolder {
@@ -240,7 +226,8 @@ public enum MediaFolder {
 /// Keeps this Mac's list of GIFs and memes in `library-<Mac name>.json` (D3 of YAZ-2919), and reads the lists
 /// of the other Macs in the same folder. It works like `YouStore`: each change saves this Mac's file at once,
 /// with an atomic write, and the store never writes the file of a different Mac.
-/// The paths and the Trash are parameters, so a test gives temp folders and a fake Trash.
+/// The paths are parameters, so a test gives temp folders.
+/// The app never deletes a file of `gifs/` or `memes/`: you delete it in Finder (D13 update on YAZ-2926).
 public final class LibraryStore {
     /// This Mac's list file, in the preferences folder.
     public private(set) var url: URL
@@ -265,13 +252,11 @@ public final class LibraryStore {
     private var others = OtherMacFiles<LibraryFile>()
     /// True when a bad file could not move away. Then the store never writes over it.
     private var saveIsBlocked = false
-    private let trash: Trash
     private let now: () -> Date
 
-    public init(url: URL, mediaFolder: URL, trash: Trash, now: @escaping () -> Date = Date.init) {
+    public init(url: URL, mediaFolder: URL, now: @escaping () -> Date = Date.init) {
         self.url = url
         self.mediaFolder = mediaFolder
-        self.trash = trash
         self.now = now
     }
 
@@ -398,14 +383,10 @@ public final class LibraryStore {
         return item
     }
 
-    /// "Move to Trash" and "Remove from your GIFs" (D13): the file goes to the Trash, then the item gets `removed`.
-    /// A KLIPY item has no file. A file that is already gone does not stop the remove.
-    /// When the Trash refuses the file, the item stays and the error comes back.
-    public func remove(_ id: String) throws {
+    /// "Remove from your GIFs" (or memes) of a saved KLIPY item (D7, D13): the item gets `removed`, on all Macs.
+    /// It touches no file.
+    public func remove(_ id: String) {
         guard var item = all[id], !item.isRemoved else { return }
-        if let file = fileURL(of: item), FileManager.default.fileExists(atPath: file.path) {
-            try trash.moveToTrash(file)
-        }
         let time = now()
         item.removed = time
         item.changed = time

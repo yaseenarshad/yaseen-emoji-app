@@ -177,7 +177,7 @@ final class FakeTextReader {
 
         // A GIFs and memes folder that is gone: the row shows the red line, and it stays.
         let gone = rig.folder.url.appendingPathComponent("gone", isDirectory: true)
-        let away = LibraryStore(url: rig.library.url, mediaFolder: gone, trash: rig.trash)
+        let away = LibraryStore(url: rig.library.url, mediaFolder: gone)
         away.load()
         let awayModel = AddModel(library: away, readText: { _ in [] })
         awayModel.add([.file(try file("wave.gif", makeTestImage(width: 52, height: 30, type: .gif, frames: 2), in: rig))])

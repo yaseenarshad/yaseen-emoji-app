@@ -157,9 +157,8 @@ final class PickRig {
     let later = FakeLater()
     let panel = FakePanel()
     let session: PickSession
-    /// The list of GIFs and memes, in the default preferences folder of the rig, with a fake Trash and a step clock.
+    /// The list of GIFs and memes, in the default preferences folder of the rig, with a step clock.
     let library: LibraryStore
-    let trash: FakeTrash
     let thumbnails: Thumbnails
     /// The files that "Show in Finder" showed.
     private(set) var shownInFinder: [URL] = []
@@ -174,9 +173,8 @@ final class PickRig {
         prefs = Prefs(defaults: defaults)
         store = YouStore(url: folder.youFile)
         store.load()
-        trash = FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true))
         library = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-Test-Mac.json"),
-                               mediaFolder: folder.defaultFolder, trash: trash, now: StepClock().now)
+                               mediaFolder: folder.defaultFolder, now: StepClock().now)
         library.load()
         thumbnails = Thumbnails(folder: folder.url.appendingPathComponent("thumbs", isDirectory: true))
         access = FakePasteAccess(trusted: trusted)
@@ -214,7 +212,6 @@ final class PickRig {
         AppParts(defaults: defaults, defaultFolder: folder.defaultFolder, computerName: { "Test Mac" },
                  loadCatalog: { catalog },
                  clipboard: clipboard, keys: keys, access: access, later: later,
-                 trash: FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true)),
                  thumbnailFolder: folder.url.appendingPathComponent("thumbs", isDirectory: true),
                  showInFinder: { _ in },
                  klipyKey: klipyKey,

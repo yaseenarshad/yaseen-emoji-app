@@ -136,7 +136,7 @@ final class PickSession {
     enum MenuAction: Equatable {
         case addWord, copyOnly, hideFromMostUsed
         /// Your own GIF or meme (D13 of YAZ-2919).
-        case showInFinder, moveToTrash
+        case showInFinder
         /// A KLIPY item (D7, D13 of YAZ-2919): "Save to your GIFs" and "Remove from your GIFs" (or memes).
         case saveToYours(ItemKind), removeFromYours(ItemKind)
         /// "Add a GIF or meme…": the add window of subissue 3 (D12 of YAZ-2919).
@@ -148,7 +148,6 @@ final class PickSession {
             case .copyOnly: return "Copy only"
             case .hideFromMostUsed: return "Hide from Your most used"
             case .showInFinder: return "Show in Finder"
-            case .moveToTrash: return "Move to Trash"
             case .saveToYours(let kind): return "Save to \(PickSession.yourTitle(kind).lowercasedFirst)"
             case .removeFromYours(let kind): return "Remove from \(PickSession.yourTitle(kind).lowercasedFirst)"
             case .addNew: return "Add a GIF or meme…"
@@ -522,7 +521,8 @@ final class PickSession {
     /// The items for the grid item at `index` (D13 of YAZ-2919). "Hide from Your most used" shows only
     /// in the "Your most used" section. No tone forms (D17).
     /// * An emoji: "Add a word…", "Copy only".
-    /// * Your own GIF or meme: "Add a word…", "Copy only", "Show in Finder", "Move to Trash", "Add a GIF or meme…".
+    /// * Your own GIF or meme: "Add a word…", "Copy only", "Show in Finder", "Add a GIF or meme…". No "Move to Trash":
+    ///   you delete the file in Finder (D13 update on YAZ-2926).
     /// * A saved KLIPY item: "Add a word…", "Copy only", "Remove from your GIFs", "Add a GIF or meme…".
     /// * A KLIPY item that is not saved: "Save to your GIFs", "Copy only", "Add a GIF or meme…". In "Your most used"
     ///   (a KLIPY item that you picked) also "Hide from Your most used": D15 applies to each item of that section.
@@ -533,7 +533,7 @@ final class PickSession {
         case .emoji:
             return [.addWord, .copyOnly] + hide
         case .own:
-            return [.addWord, .copyOnly] + hide + [.showInFinder, .moveToTrash, .addNew]
+            return [.addWord, .copyOnly] + hide + [.showInFinder, .addNew]
         case .online(let item):
             if isSaved(item) { return [.addWord, .copyOnly] + hide + [.removeFromYours(item.kind), .addNew] }
             return [.saveToYours(item.kind), .copyOnly] + hide + [.addNew]
@@ -554,7 +554,6 @@ final class PickSession {
         case .copyOnly: copyOnly()
         case .hideFromMostUsed: hideFromMostUsed(item: item)
         case .showInFinder: showInFinder(item)
-        case .moveToTrash: moveToTrash(item)
         case .saveToYours: saveToYours(item)
         case .removeFromYours: removeFromYours(item)
         case .addNew: addNew()
@@ -581,16 +580,6 @@ final class PickSession {
         showInFinder(url)
     }
 
-    /// "Move to Trash" (D13 of YAZ-2919): the file goes to the macOS Trash, and the item is marked `removed`.
-    /// Its still picture goes too (D5). No type-to-confirm: "Put Back" in Finder undoes it. The panel stays open.
-    /// When the Trash refuses the file, nothing changes.
-    func moveToTrash(_ item: PickItem) {
-        guard case .own(let own) = item else { return }
-        do { try library.remove(own.id) } catch { return }
-        thumbnails?.removeStill(of: own.id)
-        itemsChanged()
-    }
-
     /// "Save to your GIFs" (or memes) of a KLIPY item (D7 of YAZ-2919): only its slug goes into the list.
     /// With a search, the search text is the word of the item.
     func saveToYours(_ item: PickItem) {
@@ -604,7 +593,7 @@ final class PickSession {
     /// "Remove from your GIFs" (or memes) of a saved KLIPY item (D7, D13 of YAZ-2919). It has no file. Its counts stay.
     func removeFromYours(_ item: PickItem) {
         guard case .online(let online) = item else { return }
-        try? library.remove(Item.klipyItemID(online.id))
+        library.remove(Item.klipyItemID(online.id))
         itemsChanged()
     }
 

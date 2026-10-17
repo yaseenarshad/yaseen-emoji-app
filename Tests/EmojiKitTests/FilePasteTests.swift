@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The paste of a GIF or meme file and the right-click actions, with no window (YAZ-2926; D6 and D13 of YAZ-2919).
 /// The fake clipboard uses the same item as the real one (`ClipboardContents.fileItem`). No test touches the
-/// real clipboard, the real Trash or Finder.
+/// real clipboard or Finder.
 @MainActor
 @Suite struct FilePasteTests {
     /// The one clipboard item of D6: the file URL, the file's own bytes in its own type, and the transient mark.
@@ -116,34 +116,6 @@ import UniformTypeIdentifiers
         #expect(rig.session.isOpen)
         #expect(rig.clipboard.contents == FakeClipboard.rich && rig.keys.sent.isEmpty)
         #expect(rig.store.you.uses.isEmpty)
-    }
-
-    /// D13: "Move to Trash" marks the item removed, and the GIFs tab no longer shows it (with a fake Trash).
-    /// The panel stays open. A Trash that refuses changes nothing.
-    @Test func moveToTrashRemovesTheGIF() throws {
-        let rig = try PickRig()
-        let gif = try rig.addOwn(words: ["dance"])
-        let other = try rig.addOwn(words: ["wave"], seed: 1)
-        rig.session.open()
-        rig.session.select(tab: .gifs)
-        rig.session.select(try rig.place(of: gif.key))
-
-        rig.trash.refuses = true
-        rig.session.perform(.moveToTrash)
-        #expect(rig.library.item(gif.id)?.isRemoved == false)
-        #expect(rig.session.items.contains(.own(gif)))
-
-        rig.trash.refuses = false
-        rig.session.perform(.moveToTrash)
-        #expect(rig.session.isOpen)
-        #expect(rig.library.item(gif.id)?.isRemoved == true)
-        #expect(rig.trash.trashed == ["\(gif.id).gif"])
-        #expect(rig.session.items == [.own(other)])
-        #expect(rig.session.lines == [.title("Your GIFs"), .cells(0..<1)])
-        // A new store on the same folder (the next start) does not show it either.
-        let next = LibraryStore(url: rig.library.url, mediaFolder: rig.library.mediaFolder, trash: rig.trash)
-        next.load()
-        #expect(next.items(.gif).map(\.id) == [other.id])
     }
 
     /// D13: "Show in Finder" closes the panel and shows the file. "Add a GIF or meme…" calls the hook of subissue 3.

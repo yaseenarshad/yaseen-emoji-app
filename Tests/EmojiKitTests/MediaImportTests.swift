@@ -8,8 +8,7 @@ import UniformTypeIdentifiers
 /// and the words of a meme. Each file is made in the test, in a temp folder.
 @Suite struct MediaImportTests {
     private func store(in folder: TempFolder) -> LibraryStore {
-        let store = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-A.json"), mediaFolder: folder.defaultFolder,
-                                 trash: FakeTrash(folder: folder.url.appendingPathComponent("Trash")), now: StepClock().now)
+        let store = LibraryStore(url: folder.defaultFolder.appendingPathComponent("library-A.json"), mediaFolder: folder.defaultFolder, now: StepClock().now)
         store.load()
         return store
     }

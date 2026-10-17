@@ -249,7 +249,7 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
 
         // Mac B reads the list of this Mac and sees the saved item.
         let macB = LibraryStore(url: rig.folder.defaultFolder.appendingPathComponent("library-B.json"),
-                                mediaFolder: rig.folder.defaultFolder, trash: FakeTrash(folder: rig.folder.url))
+                                mediaFolder: rig.folder.defaultFolder)
         macB.load()
         #expect(macB.items.map(\.id) == [id])
 
