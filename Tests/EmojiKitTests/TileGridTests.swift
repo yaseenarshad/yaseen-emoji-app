@@ -59,7 +59,8 @@ import Testing
     }
 
     /// A still picture loads off the main thread into the cache. The remove of an item on a different Mac
-    /// (or in an earlier build) deletes it at the next open (D5, owner note on YAZ-2925).
+    /// (or in an earlier build) deletes it at the next open (D5, owner note on YAZ-2925). So does a file that you
+    /// deleted in Finder (D13 update on YAZ-2926).
     @Test func theStillPictureLoadsAndGoesWithItsItem() async throws {
         let rig = try PickRig()
         let gif = try rig.addOwn(words: ["dance"])
@@ -93,6 +94,15 @@ import Testing
         #expect(rig.thumbnails.image(other.id) == nil)
         await waitUntil { !FileManager.default.fileExists(atPath: otherStill.path) }
         #expect(!FileManager.default.fileExists(atPath: otherStill.path))
+
+        // You delete the file of the first GIF in Finder. Its item stays in the list, and its still picture goes.
+        try FileManager.default.removeItem(at: try #require(rig.library.fileURL(of: gif)))
+        rig.session.close()
+        rig.session.open()
+        #expect(rig.library.item(gif.id)?.isRemoved == false)
+        await waitUntil { !FileManager.default.fileExists(atPath: still.path) }
+        #expect(!FileManager.default.fileExists(atPath: still.path))
+        rig.session.close()
     }
 
     /// The memory of 120 still pictures in the cache. The number goes into the Result comment.

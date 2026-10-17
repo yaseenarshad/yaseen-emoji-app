@@ -32,8 +32,8 @@ final class Thumbnails {
     private var waiting: [Want] = []
     /// The items whose file could not give a still picture. They stay grey. A new open tries again.
     private var failed: Set<String> = []
-    /// The removed items whose still picture is deleted already.
-    private var removedDone: Set<String> = []
+    /// The items that showed at the last clean-up of the still pictures, or nil before the first one.
+    private var shownAtCleanUp: Set<String>?
 
     init(folder: URL) {
         self.folder = folder
@@ -44,9 +44,6 @@ final class Thumbnails {
     func image(_ id: String) -> NSImage? {
         cache.object(forKey: id as NSString)
     }
-
-    /// True when the file of `id` gave no still picture.
-    func hasFailed(_ id: String) -> Bool { failed.contains(id) }
 
     /// Puts one still picture in memory. The cache drops the oldest when it has 120.
     func keep(_ image: NSImage, for id: String) {
@@ -64,18 +61,21 @@ final class Thumbnails {
         failed = []
     }
 
-    /// Deletes the still pictures of the items that are removed, on this Mac or on a different Mac (D3, D5).
-    /// The panel calls it at each open. An item is done one time only.
-    func removeStills(ofRemoved items: some Sequence<Item>) {
-        let gone = items.filter { $0.isRemoved && $0.file != nil && !removedDone.contains($0.id) }.map(\.id)
-        guard !gone.isEmpty else { return }
-        for id in gone {
-            cache.removeObject(forKey: id as NSString)
-            removedDone.insert(id)
-        }
+    /// Deletes the still picture of each item that does not show (D5): removed on this Mac or on a different Mac,
+    /// or its file is gone (deleted in Finder, D13 update on YAZ-2926). `shown` are the `id`s of your items that show.
+    /// The panel calls it at each open. It works only when `shown` changed, and the folder list and the deletes run
+    /// off the main thread. A file that comes back (a `git pull`) gets its still picture again when its tile shows.
+    func removeStills(keeping shown: Set<String>) {
+        guard shown != shownAtCleanUp else { return }
+        for id in (shownAtCleanUp ?? []).subtracting(shown) { cache.removeObject(forKey: id as NSString) }
+        shownAtCleanUp = shown
         let folder = self.folder
         Task.detached(priority: .utility) {
-            for id in gone { MediaImport.removeThumbnail(of: id, in: folder) }
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            for name in names where name.hasSuffix(".png") {
+                let id = String(name.dropLast(".png".count))
+                if !shown.contains(id) { MediaImport.removeThumbnail(of: id, in: folder) }
+            }
         }
     }
 

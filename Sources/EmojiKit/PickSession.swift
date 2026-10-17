@@ -234,7 +234,8 @@ final class PickSession {
     let library: LibraryStore
     /// KLIPY (D1 of YAZ-2919): `KlipyResults` in the app. Nil: no "From KLIPY" section.
     let online: OnlineResults?
-    /// The still pictures of the tiles. The session deletes the still picture of a removed item (D5 of YAZ-2919).
+    /// The still pictures of the tiles. At each open, the session deletes the still pictures of the items that do not
+    /// show (D5 of YAZ-2919).
     let thumbnails: Thumbnails?
     private let prefs: Prefs
     private let paster: Paster
@@ -285,7 +286,12 @@ final class PickSession {
         // The lists of the other Macs can have new items or new removes.
         forgetEntries()
         thumbnails?.retryFailed()
-        thumbnails?.removeStills(ofRemoved: library.all.values)
+        // A missing GIFs and memes folder (an unmounted drive) hides all your items: their still pictures stay.
+        if !library.mediaFolderIsMissing {
+            thumbnails?.removeStills(keeping: Set(library.items.compactMap { item in
+                item.file != nil && !library.missing.contains(item.id) ? item.id : nil
+            }))
+        }
         rebuild()
         panel?.reload()
         panel?.show()
