@@ -182,8 +182,10 @@ final class PickSession {
     var willOpen: () -> Void = {}
     /// "Show in Finder" (D13 of YAZ-2919). The app gives `NSWorkspace.activateFileViewerSelecting`.
     var showInFinder: (URL) -> Void = { _ in }
-    /// "Add a GIF or meme…" (D12 of YAZ-2919). Subissue 3 opens the add window here. Until then it does nothing.
+    /// "Add a GIF or meme…" (D12 of YAZ-2919). The app opens the add window here.
     var onAddNew: () -> Void = {}
+    /// A drop of files on the panel (D12 of YAZ-2919). The app opens the add window with one row for each file.
+    var onAddFiles: ([AddSource]) -> Void = { _ in }
 
     let catalog: [Emoji]
     let store: YouStore
@@ -516,6 +518,14 @@ final class PickSession {
     /// "Add a GIF or meme…" (D12 of YAZ-2919).
     func addNew() {
         onAddNew()
+    }
+
+    /// A drop of files on the panel (D12 of YAZ-2919): the panel closes, and the add window opens with the files.
+    /// The add window stays open, so the files do not go when you click away.
+    func addFiles(_ sources: [AddSource]) {
+        guard !sources.isEmpty else { return }
+        close()
+        onAddFiles(sources)
     }
 
     /// True when a KLIPY item is in your GIFs or memes (D7).

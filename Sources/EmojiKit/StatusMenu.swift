@@ -1,6 +1,7 @@
 import AppKit
 
-/// The menu bar icon and its rows (D10): "Find an emoji", "Settings…", "Start at login", "Quit Yaseen Emoji".
+/// The menu bar icon and its rows (D10): "Find an emoji", "Add a GIF or meme…" (D12 of YAZ-2919), "Settings…",
+/// "Start at login", "Quit Yaseen Emoji".
 ///
 /// The menu exists with no status item, so a test reads the rows and nothing shows on the screen.
 /// `showInMenuBar()` makes the status item.
@@ -12,6 +13,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     static let symbolName = "face.smiling"
 
     var onFindEmoji: () -> Void = {}
+    /// "Add a GIF or meme…": the add window (D12 of YAZ-2919).
+    var onAddMedia: () -> Void = {}
     var onOpenSettings: () -> Void = {}
     var onToggleStartAtLogin: () -> Void = {}
     /// Runs before the menu opens, so the check mark of "Start at login" is the real state.
@@ -30,6 +33,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.delegate = self
         for row in [findRow, loginRow] { row.target = self }
         menu.addItem(findRow)
+        menu.addItem(row("Add a GIF or meme…", #selector(addMedia)))
         menu.addItem(.separator())
         menu.addItem(row("Settings…", #selector(openSettings), key: ","))
         menu.addItem(loginRow)
@@ -75,6 +79,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func findEmoji() { onFindEmoji() }
+    @objc private func addMedia() { onAddMedia() }
     @objc private func openSettings() { onOpenSettings() }
     @objc private func toggleStartAtLogin() { onToggleStartAtLogin() }
     @objc private func quit() { onQuit() }

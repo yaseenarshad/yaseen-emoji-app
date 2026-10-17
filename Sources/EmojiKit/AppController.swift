@@ -50,6 +50,9 @@ struct AppParts {
 public final class AppController: NSObject, NSApplicationDelegate {
     /// What "Settings…" does. The default opens the settings window.
     lazy var openSettings: () -> Void = { [weak self] in self?.showSettingsWindow() }
+    /// What "Add a GIF or meme…" and a drop on the panel do (D12 of YAZ-2919). The default opens the add window
+    /// with one row for each file. A test gives a fake, so no test opens a window.
+    lazy var openAddWindow: ([AddSource]) -> Void = { [weak self] in self?.showAddWindow(adding: $0) }
 
     let statusMenu = StatusMenu()
     let settings: SettingsModel
@@ -57,6 +60,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     let store: YouStore
     /// The list of GIFs and memes of all Macs (D3 of YAZ-2919).
     let library: LibraryStore
+    /// The rows of the add window (D12 of YAZ-2919). They stay while the window is open.
+    let addModel: AddModel
     /// The preferences folder and the name of this Mac's history file (D16).
     let folders: PreferencesFolder
 
@@ -78,6 +83,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The still pictures of the tiles, for the life of the app (D11 of YAZ-2919).
     let thumbnails: Thumbnails
     private var settingsWindow: SettingsWindowController?
+    private var addWindow: AddWindowController?
     private let log = Logger(subsystem: "com.yaseenarshad.yaseenemoji", category: "shell")
 
     /// The app: the real hotkey center, the real login item, and the real parts.
@@ -98,6 +104,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let media = MediaFolder.resolve(chosen: prefs.mediaFolder, preferencesFolder: place.folder)
         library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder,
                                trash: parts.trash)
+        addModel = AddModel(library: library)
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
         thumbnails = Thumbnails(folder: parts.thumbnailFolder)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
@@ -151,6 +158,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         statusMenu.onQuit = { NSApp.terminate(nil) }
         statusMenu.onFindEmoji = { [weak self] in self?.showFinder() }
         statusMenu.onOpenSettings = { [weak self] in self?.openSettings() }
+        statusMenu.onAddMedia = { [weak self] in self?.addNew() }
         statusMenu.onToggleStartAtLogin = { [weak self] in
             guard let self else { return }
             settings.setStartAtLogin(!settings.startAtLogin)
@@ -226,8 +234,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         session.panel = panel
         session.willOpen = { [weak self] in self?.reloadHistory() }
         session.showInFinder = parts.showInFinder
-        // Subissue 3 opens the add window here (D12 of YAZ-2919).
-        session.onAddNew = {}
+        session.onAddNew = { [weak self] in self?.addNew() }
+        session.onAddFiles = { [weak self] in self?.openAddWindow($0) }
         self.session = session
         self.panel = panel
         if opensWhenReady {
@@ -282,7 +290,21 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }.value
     }
 
-    // MARK: The settings window
+    /// "Add a GIF or meme…" in the menu bar and in the right-click menu: the panel closes, and the add window opens.
+    func addNew() {
+        session?.close()
+        openAddWindow([])
+    }
+
+    // MARK: The add window and the settings window
+
+    /// One add window for the life of the app (D12 of YAZ-2919). It keeps its rows while it is open.
+    private func showAddWindow(adding sources: [AddSource]) {
+        let window = addWindow ?? AddWindowController(model: addModel)
+        addWindow = window
+        window.show()
+        addModel.add(sources)
+    }
 
     private func showSettingsWindow() {
         session?.close()
