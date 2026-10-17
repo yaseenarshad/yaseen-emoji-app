@@ -51,6 +51,9 @@ enum PickItem: Equatable {
         }
     }
 
+    /// The row of Settings → "When you press Enter" that a pick of this item uses (D16 of YAZ-2919).
+    var pickKind: PickKind { kind.map(PickKind.init) ?? .emoji }
+
     /// True for a GIF: its tile plays while it is on the screen (D11 update on YAZ-2925). A meme and an emoji stay still.
     var plays: Bool { kind == .gif }
 
@@ -486,16 +489,18 @@ final class PickSession {
             store.recordPick(key, query: query)
             return
         }
-        let paste = paster.willPaste(prefs.pickMode)
+        // The mode and the Keep value of the kind of the item (D16 of YAZ-2919).
+        let paste = paster.willPaste(prefs.pickMode(item.pickKind))
+        let keep = prefs.keepsOnClipboard(item.pickKind)
         guard stayOpen else {
             close()
-            paster.deliver(clip, paste: paste)
+            paster.deliver(clip, paste: paste, keep: keep)
             store.recordPick(key, query: query)
             return
         }
         if paste {
             panel?.stepAside()
-            paster.deliver(clip, paste: true) { [weak self] in
+            paster.deliver(clip, paste: true, keep: keep) { [weak self] in
                 guard let self, self.isOpen else { return }
                 self.panel?.comeBack()
             }

@@ -20,6 +20,7 @@ import UniformTypeIdentifiers
     /// after 1.0 s, not 0.3 s. A new copy of the user in the wait stays.
     @Test func aGIFPickPastesTheFileAndRestoresAfterOneSecond() throws {
         let rig = try PickRig()
+        rig.setEnter(keep: false)
         let gif = try rig.addOwn(words: ["dance"])
         let url = try #require(rig.library.fileURL(of: gif))
         rig.session.open()
@@ -82,14 +83,14 @@ import UniformTypeIdentifiers
         #expect(rig.store.you.uses[gif.key]?.count == 1)
 
         // Copy only in Settings: Enter copies too.
-        rig.prefs.pickMode = .copyOnly
+        rig.setEnter(.copyOnly, keep: false)
         rig.session.open()
         rig.session.select(tab: .gifs)
         rig.session.enter(shift: false)
         rig.later.runAll()
         #expect(rig.keys.sent.isEmpty && rig.clipboard.restores == 0)
 
-        rig.prefs.pickMode = .paste
+        rig.setEnter(.paste, keep: false)
         rig.session.open()
         rig.session.select(tab: .gifs)
         rig.session.enter(shift: true)

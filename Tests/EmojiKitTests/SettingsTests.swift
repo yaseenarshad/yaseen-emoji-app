@@ -23,7 +23,9 @@ import Testing
         let prefs = Prefs(defaults: defaults)
         #expect(prefs.hotKey == commandE)
         #expect(prefs.hotKey.keyCode == 14 && prefs.hotKey.modifiers == .command)
-        #expect(prefs.pickMode == .paste)
+        // D16 of YAZ-2919: Paste and Keep for all three kinds.
+        #expect(PickKind.allCases.allSatisfy { prefs.pickMode($0) == .paste && prefs.keepsOnClipboard($0) })
+        #expect(PickKind.allCases.allSatisfy { prefs.pickModeChangedAt($0) == nil && prefs.keepChangedAt($0) == nil })
         #expect(prefs.defaultTone == "")
         #expect(!prefs.askedForAccessibility)
         // D14 update of YAZ-2919: GIFs on, Memes off.
@@ -31,7 +33,8 @@ import Testing
         #expect(prefs.klipyChangedAt(.gif) == nil && prefs.klipyChangedAt(.meme) == nil)
 
         prefs.hotKey = controlOptionE
-        prefs.pickMode = .copyOnly
+        prefs.setPickMode(.copyOnly, for: .gif)
+        prefs.setKeepsOnClipboard(false, for: .emoji)
         prefs.defaultTone = "\u{1F3FE}"
         prefs.askedForAccessibility = true
         prefs.setSearchesKlipy(false, for: .gif)
@@ -39,17 +42,18 @@ import Testing
         let again = Prefs(defaults: defaults)
         #expect(!again.searchesKlipy(.gif) && again.searchesKlipy(.meme))
         #expect(again.hotKey == controlOptionE)
-        #expect(again.pickMode == .copyOnly)
+        #expect(again.pickMode(.gif) == .copyOnly && again.pickMode(.emoji) == .paste && again.pickMode(.meme) == .paste)
+        #expect(!again.keepsOnClipboard(.emoji) && again.keepsOnClipboard(.gif) && again.keepsOnClipboard(.meme))
         #expect(again.defaultTone == "\u{1F3FE}")
         #expect(again.askedForAccessibility)
 
         // Broken values: a key with no modifier, a code past one byte, an unknown mode, a tone that is not a tone.
         defaults.set(Int(kVK_ANSI_E), forKey: "yaseenEmoji.hotKeyCode")
         defaults.set(0, forKey: "yaseenEmoji.hotKeyModifiers")
-        defaults.set("type it", forKey: "yaseenEmoji.pickMode")
+        defaults.set("type it", forKey: "yaseenEmoji.pickMode.gif")
         defaults.set("x", forKey: "yaseenEmoji.defaultTone")
         #expect(again.hotKey == commandE)
-        #expect(again.pickMode == .paste)
+        #expect(again.pickMode(.gif) == .paste)
         #expect(again.defaultTone == "")
         defaults.set(300, forKey: "yaseenEmoji.hotKeyCode")
         defaults.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: "yaseenEmoji.hotKeyModifiers")
@@ -129,7 +133,7 @@ import Testing
         #expect(rig.store.you.settings.klipyGIFs == nil && rig.store.you.settings.klipyMemes == nil)
         let model = makeModel(rig, hotKeys: FakeHotKeyRegistrar())
         model.applySynced()
-        #expect(model.pickMode == .copyOnly)
+        #expect(PickKind.allCases.allSatisfy { model.choice($0).mode == .copyOnly })
         #expect(model.klipyGIFs && !model.klipyMemes)
         #expect(rig.prefs.klipyChangedAt(.gif) == nil && rig.prefs.klipyChangedAt(.meme) == nil)
     }

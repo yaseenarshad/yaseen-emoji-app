@@ -121,46 +121,48 @@ final class Paster {
     }
 
     /// Puts `text` on the clipboard, as `deliver(_ clip:)`.
-    func deliver(_ text: String, paste: Bool, afterPaste: @escaping @MainActor () -> Void = {}) {
-        deliver(.text(text), paste: paste, afterPaste: afterPaste)
+    func deliver(_ text: String, paste: Bool, keep: Bool = false, afterPaste: @escaping @MainActor () -> Void = {}) {
+        deliver(.text(text), paste: paste, keep: keep, afterPaste: afterPaste)
     }
 
-    /// Puts `clip` on the clipboard. With `paste`, it also posts ⌘V and later puts the old clipboard back,
-    /// but only if the clipboard is still the app's own. Then a new copy of the user in the wait stays.
-    /// A file waits 1.0 s for the restore, a text 0.3 s. A file that cannot be read changes nothing.
+    /// Puts `clip` on the clipboard. With `paste`, it also posts ⌘V.
+    /// * `keep` (D16 of YAZ-2919): the item stays on the clipboard after the ⌘V, with no transient mark, so a
+    ///   clipboard history app keeps it as a normal copy. No restore waits.
+    /// * No `keep` (D2): the old clipboard comes back later, but only if the clipboard is still the app's own.
+    ///   Then a new copy of the user in the wait stays. A file waits 1.0 s for the restore, a text 0.3 s.
+    /// A file that cannot be read changes nothing.
     /// `afterPaste` runs when the panel can take the keyboard again. With no paste, it runs at once.
-    func deliver(_ clip: Clip, paste: Bool, afterPaste: @escaping @MainActor () -> Void = {}) {
-        // A second pick in the wait: the clipboard of the user is the one that the first pick saved.
-        let saved: ClipboardContents
-        if let pending, clipboard.changeCount == pending.own {
-            saved = pending.saved
-        } else {
-            saved = clipboard.read()
+    func deliver(_ clip: Clip, paste: Bool, keep: Bool = false, afterPaste: @escaping @MainActor () -> Void = {}) {
+        let restores = paste && !keep
+        // The clipboard of the user, for the restore. A second pick in the wait: the one that the first pick saved.
+        var saved: ClipboardContents?
+        if restores {
+            if let pending, clipboard.changeCount == pending.own { saved = pending.saved } else { saved = clipboard.read() }
         }
         let written: Int?
         let wait: TimeInterval
         switch clip {
         case .text(let text):
-            written = clipboard.write(text, transient: paste)
+            written = clipboard.write(text, transient: restores)
             wait = Paster.restoreDelay
         case .file(let url, let type):
-            written = clipboard.write(file: url, type: type, transient: paste)
+            written = clipboard.write(file: url, type: type, transient: restores)
             wait = Paster.fileRestoreDelay
         }
         guard let own = written else {
             afterPaste()
             return
         }
+        // Copy only, or Keep: the item stays, and a restore that waits does nothing.
+        pending = saved.map { ($0, own) }
         guard paste else {
-            // Copy only: the item stays, and a restore that waits does nothing.
-            pending = nil
             afterPaste()
             return
         }
-        pending = (saved, own)
         later.run(after: Paster.postDelay) { [self] in
             keys.post(Paster.pasteKey)
             later.run(after: Paster.comeBackDelay, afterPaste)
+            guard restores else { return }
             later.run(after: wait) { [self] in
                 // A later pick owns the restore now.
                 guard let pending, pending.own == own else { return }

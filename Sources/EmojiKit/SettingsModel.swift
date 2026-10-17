@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// The state and the rules of the settings window, with no window and no view (D2, D8, D9, D10, D15, D16;
-/// D4 and D14 of YAZ-2919).
+/// D4, D14 and D16 of YAZ-2919).
 ///
 /// The model owns the changes of the settings: it registers the hotkey, stores the prefs, asks
 /// macOS for "Start at login", and clears the learned words. The app, the menu and the window
@@ -38,7 +38,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var isRecording = false
     /// The red line below the hotkey row.
     @Published private(set) var hotKeyProblem: String?
-    @Published private(set) var pickMode: PickMode
+    /// "When you press Enter" (D16 of YAZ-2919): the mode and "Keep it on the clipboard after a paste" of each kind.
+    @Published private(set) var enter: [PickKind: EnterChoice] = [:]
     @Published private(set) var defaultTone: String
     /// The real state from macOS, not a stored value.
     @Published private(set) var startAtLogin = false
@@ -117,11 +118,11 @@ final class SettingsModel: ObservableObject {
         self.library = library
         self.keyStore = keyStore
         hotKey = prefs.hotKey
-        pickMode = prefs.pickMode
         defaultTone = prefs.defaultTone
         klipyGIFs = prefs.searchesKlipy(.gif)
         klipyMemes = prefs.searchesKlipy(.meme)
         hasKlipyKey = !(keyStore.read() ?? "").isEmpty
+        showEnter()
         refresh()
     }
 
@@ -175,12 +176,60 @@ final class SettingsModel: ObservableObject {
         return true
     }
 
-    // MARK: When you pick (D2) and the default skin tone (D9)
+    // MARK: When you press Enter (D2; D16 of YAZ-2919) and the default skin tone (D9)
 
-    func setPickMode(_ mode: PickMode) {
-        prefs.pickMode = mode
-        prefs.pickModeChangedAt = store.setPickMode(mode.rawValue)
-        pickMode = mode
+    /// What Enter does for one kind.
+    struct EnterChoice: Equatable {
+        var mode: PickMode
+        /// "Keep it on the clipboard after a paste". It has no effect with Copy only.
+        var keep: Bool
+    }
+
+    func choice(_ kind: PickKind) -> EnterChoice {
+        enter[kind] ?? stored(kind)
+    }
+
+    /// "Paste | Copy only" of one kind. The other Macs get it through this Mac's history file (D16).
+    func setPickMode(_ mode: PickMode, for kind: PickKind) {
+        guard mode != prefs.pickMode(kind) else { return }
+        prefs.setPickMode(mode, for: kind)
+        prefs.setPickModeChangedAt(store.setPickMode(mode.rawValue, for: kind), for: kind)
+        showEnter()
+    }
+
+    /// "Keep it on the clipboard after a paste" of one kind. Copy only always keeps, so the switch is off there.
+    func setKeepsOnClipboard(_ keep: Bool, for kind: PickKind) {
+        guard keep != prefs.keepsOnClipboard(kind) else { return }
+        prefs.setKeepsOnClipboard(keep, for: kind)
+        prefs.setKeepChangedAt(store.setKeepsOnClipboard(keep, for: kind), for: kind)
+        showEnter()
+    }
+
+    /// The grey line below "When you press Enter": what Enter does now, with the kinds that do the same thing.
+    var enterText: String {
+        SettingsModel.enterText(PickKind.allCases.map { (kind: $0, choice: choice($0)) })
+    }
+
+    static func enterText(_ choices: [(kind: PickKind, choice: EnterChoice)]) -> String {
+        let ways: [(text: String, test: (EnterChoice) -> Bool)] = [
+            ("paste and stay on the clipboard.", { $0.mode == .paste && $0.keep }),
+            ("paste, then your old clipboard comes back.", { $0.mode == .paste && !$0.keep }),
+            ("copy only. You paste with ⌘V.", { $0.mode == .copyOnly }),
+        ]
+        return ways.compactMap { way -> String? in
+            let names = choices.filter { way.test($0.choice) }.map(\.kind.name)
+            guard let last = names.last else { return nil }
+            let list = names.count == 1 ? last : names.dropLast().joined(separator: ", ") + " and " + last
+            return list.prefix(1).uppercased() + list.dropFirst() + " " + way.text
+        }.joined(separator: " ")
+    }
+
+    private func stored(_ kind: PickKind) -> EnterChoice {
+        EnterChoice(mode: prefs.pickMode(kind), keep: prefs.keepsOnClipboard(kind))
+    }
+
+    private func showEnter() {
+        enter = Dictionary(uniqueKeysWithValues: PickKind.allCases.map { ($0, stored($0)) })
     }
 
     func setDefaultTone(_ tone: String) {
@@ -198,12 +247,19 @@ final class SettingsModel: ObservableObject {
     /// and the next change of the files tries again. The app calls this after a load or a reload.
     func applySynced() {
         let synced = store.you.settings
-        if let mode = synced.pickMode, isNewer(mode.at, than: prefs.pickModeChangedAt),
-           let value = PickMode(rawValue: mode.value) {
-            prefs.pickMode = value
-            prefs.pickModeChangedAt = mode.at
-            pickMode = value
+        for kind in PickKind.allCases {
+            // A kind with no value of its own uses the v0.1 `pickMode`, so an old file still gives its mode.
+            if let mode = synced.pickMode(kind), isNewer(mode.at, than: prefs.pickModeChangedAt(kind)),
+               let value = PickMode(rawValue: mode.value) {
+                prefs.setPickMode(value, for: kind)
+                prefs.setPickModeChangedAt(mode.at, for: kind)
+            }
+            if let keep = synced.keepOnClipboard?[kind.rawValue], isNewer(keep.at, than: prefs.keepChangedAt(kind)) {
+                prefs.setKeepsOnClipboard(keep.value, for: kind)
+                prefs.setKeepChangedAt(keep.at, for: kind)
+            }
         }
+        showEnter()
         if let tone = synced.defaultTone, isNewer(tone.at, than: prefs.defaultToneChangedAt),
            SkinTone.all.contains(tone.value) {
             prefs.defaultTone = tone.value

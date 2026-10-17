@@ -185,6 +185,15 @@ final class PickRig {
         session.showInFinder = { [unowned self] in self.shownInFinder.append($0) }
     }
 
+    /// D16 of YAZ-2919: the same "Paste | Copy only" and Keep value for all three kinds.
+    /// Keep off gives the D2 paste of v0.1: the old clipboard comes back.
+    func setEnter(_ mode: PickMode = .paste, keep: Bool) {
+        for kind in PickKind.allCases {
+            prefs.setPickMode(mode, for: kind)
+            prefs.setKeepsOnClipboard(keep, for: kind)
+        }
+    }
+
     /// The emoji texts of the grid.
     var shownItems: [String] { session.emojis.map { session.shown($0) } }
 

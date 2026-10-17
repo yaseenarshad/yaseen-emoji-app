@@ -2,8 +2,8 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// The rows of the settings window (D10): the hotkey, "When you pick", "Default skin tone",
-/// "Start at login", the Accessibility line, "Hidden from Your most used", "Forget learned words",
+/// The rows of the settings window (D10): the hotkey, "Default skin tone", "Start at login",
+/// "When you press Enter" (D16 of YAZ-2919), the Accessibility line, "Hidden from Your most used", "Forget learned words",
 /// the preferences folder (D16), and "GIFs and memes" (D14 of YAZ-2919).
 /// Each change saves at once.
 struct SettingsView: View {
@@ -13,9 +13,15 @@ struct SettingsView: View {
         Form {
             Section {
                 hotKeyRow
-                pickModeRow
                 toneRow
                 startAtLoginRow
+            }
+            Section {
+                ForEach(PickKind.allCases, id: \.self) { enterRow($0) }
+            } header: {
+                Text("When you press Enter")
+            } footer: {
+                Text(model.enterText).font(.callout).foregroundStyle(.secondary)
             }
             Section("Accessibility") {
                 accessibilityRow
@@ -64,21 +70,26 @@ struct SettingsView: View {
         }
     }
 
-    private var pickModeRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Picker("When you pick", selection: Binding(
-                get: { model.pickMode },
-                set: { model.setPickMode($0) }
+    /// D16 of YAZ-2919: Paste | Copy only, and "Keep it on the clipboard after a paste", for one kind.
+    /// Copy only always keeps the item, so the switch shows off and does not work there.
+    private func enterRow(_ kind: PickKind) -> some View {
+        let choice = model.choice(kind)
+        return VStack(alignment: .leading, spacing: 6) {
+            Picker(kind.title, selection: Binding(
+                get: { model.choice(kind).mode },
+                set: { model.setPickMode($0, for: kind) }
             )) {
                 ForEach(PickMode.allCases, id: \.self) { mode in
                     Text(mode.title).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            Text(model.pickMode == .paste
-                 ? "The emoji goes where your cursor is. Your clipboard comes back."
-                 : "The emoji goes on the clipboard. You paste it.")
-                .font(.callout).foregroundStyle(.secondary)
+            Toggle("Keep it on the clipboard after a paste", isOn: Binding(
+                get: { model.choice(kind).mode == .paste && model.choice(kind).keep },
+                set: { model.setKeepsOnClipboard($0, for: kind) }
+            ))
+            .toggleStyle(.switch)
+            .disabled(choice.mode == .copyOnly)
         }
     }
 
