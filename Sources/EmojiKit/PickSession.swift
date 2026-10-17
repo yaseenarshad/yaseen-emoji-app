@@ -12,8 +12,10 @@ protocol PickPanel: AnyObject {
     func stepAside()
     /// Shows the panel again after `stepAside()`, with the keyboard.
     func comeBack()
-    /// The query, the lines or the items changed.
+    /// The query, the lines or the items changed. The grid goes to the top, with the blue box in sight.
     func reload()
+    /// New KLIPY results or items came (D11 of YAZ-2919). The grid takes the new lines and keeps its scroll.
+    func update()
     /// Only the blue box moved.
     func showSelection()
 }
@@ -101,7 +103,7 @@ final class PickSession {
     static let mostUsedTitle = "Your most used"
     /// The title of your own results of a search in the GIFs and Memes tabs (D11 of YAZ-2919).
     static let yoursTitle = "Yours"
-    /// The title of the KLIPY results (D11 of YAZ-2919). Subissue 4 fills it.
+    /// The title of the KLIPY results (D11 of YAZ-2919).
     static let onlineTitle = "From KLIPY"
 
     /// The three tabs (D10 of YAZ-2919). Each open starts on Emoji.
@@ -173,9 +175,17 @@ final class PickSession {
     /// The places in `items` of the "Your most used" section, or nil when the grid has no such section.
     private(set) var mostUsedItems: Range<Int>?
     /// The place of the blue box in `items`. Nil when no item has the blue box.
-    private(set) var selection: Int?
+    private(set) var selection: Int? {
+        didSet { online?.selectionChanged(to: selectedOnlineItem) }
+    }
     /// The item that waits for a word from "Add a word…" (with an empty search).
     private(set) var addingWordFor: PickItem?
+    /// The KLIPY item of a pick that waits for its paste file (up to 3 s, D6 of YAZ-2919).
+    private(set) var waitingFor: PickItem?
+    /// The grey line at the top of the GIFs and Memes tabs: "Getting the GIF…" or "Can't get this GIF from KLIPY.".
+    private(set) var notice: String?
+    /// Changes at each wait, so an old answer does nothing.
+    private var waitCount = 0
 
     weak var panel: PickPanel?
     /// Runs each time the panel opens, before the grid is made. The app reads the changed history files here (D16).
@@ -191,7 +201,7 @@ final class PickSession {
     let store: YouStore
     /// The list of GIFs and memes of all Macs (D3 of YAZ-2919).
     let library: LibraryStore
-    /// KLIPY (subissue 4). Nil: no "From KLIPY" section.
+    /// KLIPY (D1 of YAZ-2919): `KlipyResults` in the app. Nil: no "From KLIPY" section.
     let online: OnlineResults?
     /// The still pictures of the tiles. The session deletes the still picture of a removed item (D5 of YAZ-2919).
     let thumbnails: Thumbnails?
@@ -236,7 +246,9 @@ final class PickSession {
         tab = .emoji
         query = ""
         addingWordFor = nil
+        stopWaiting()
         willOpen()
+        online?.refresh()
         // The lists of the other Macs can have new items or new removes.
         tileEntries = [:]
         thumbnails?.retryFailed()
@@ -251,6 +263,8 @@ final class PickSession {
         guard isOpen else { return }
         isOpen = false
         addingWordFor = nil
+        stopWaiting()
+        online?.stop()
         panel?.hide()
     }
 
@@ -268,6 +282,7 @@ final class PickSession {
     func select(tab new: Tab) {
         guard addingWordFor == nil, new != tab else { return }
         tab = new
+        stopWaiting()
         rebuild()
         panel?.reload()
     }
@@ -290,6 +305,7 @@ final class PickSession {
         query = text
         // The word for "Add a word…" is not a search.
         guard addingWordFor == nil else { return }
+        stopWaiting()
         rebuild()
         panel?.reload()
     }
@@ -341,7 +357,23 @@ final class PickSession {
     func select(_ index: Int) {
         guard items.indices.contains(index), index != selection else { return }
         selection = index
+        if notice != nil || waitingFor != nil {
+            // The line of a pick that waits or failed goes, with the blue box on the new item.
+            stopWaiting()
+            rebuild(keeping: items[index])
+            panel?.update()
+        }
         panel?.showSelection()
+        // The blue box in the last row: the next page of "From KLIPY" (D11 of YAZ-2919).
+        if let selection, selection >= items.count - columnCount { reachedEnd() }
+    }
+
+    /// The grid is near its end, or the blue box is in the last row: the next page of "From KLIPY" (D11 of YAZ-2919).
+    func reachedEnd() {
+        guard isOpen, let kind = tab.kind, addingWordFor == nil else { return }
+        let text = Search.normalize(query)
+        guard !text.isEmpty else { return }
+        online?.loadMore(for: text, kind: kind)
     }
 
     var selectedItem: PickItem? {
@@ -352,16 +384,60 @@ final class PickSession {
         selectedItem?.emoji
     }
 
+    private var selectedOnlineItem: OnlineItem? {
+        if case .online(let item) = selectedItem { return item }
+        return nil
+    }
+
     // MARK: Picks
+
+    /// How a pick puts its item: a paste (that closes the panel, or stays open), or "Copy only".
+    private enum Delivery {
+        case paste(stayOpen: Bool)
+        case copy
+    }
 
     /// Puts the item with the blue box into the app in front (D2; D6 of YAZ-2919), and learns the search text (D4).
     /// With no blue box (no results), or a GIF whose file is missing, it does nothing (D8; D4 of YAZ-2919).
+    /// A KLIPY item whose paste file is not ready waits up to 3 s, with "Getting the GIF…".
+    func pick(stayOpen: Bool) {
+        start(.paste(stayOpen: stayOpen))
+    }
+
+    /// ⌘C and the right-click "Copy only": the item goes on the clipboard, and the panel closes (D8).
+    /// It is a pick, so it counts a use and learns the search text.
+    func copyOnly() {
+        start(.copy)
+    }
+
+    private func start(_ delivery: Delivery) {
+        guard let item = selectedItem else { return }
+        if let clip = clip(for: item) { return deliver(item, clip, delivery) }
+        guard case .online(let found) = item, let online else { return }
+        waitCount += 1
+        let count = waitCount
+        waitingFor = item
+        show(notice: PickSession.gettingText(found.kind))
+        online.getPasteFile(for: found) { [weak self] url in
+            guard let self, self.isOpen, self.waitCount == count, self.waitingFor != nil else { return }
+            self.waitingFor = nil
+            guard let url else { return self.show(notice: PickSession.cantGetText(found.kind)) }
+            self.show(notice: nil)
+            self.deliver(item, .file(url, type: found.fileType), delivery)
+        }
+    }
+
     /// The paste starts before the save: with a full `you.json` (5,000 learned pairs)
     /// the save takes about 23 ms in a release build, and the panel must not wait for it.
-    func pick(stayOpen: Bool) {
-        guard let item = selectedItem, let clip = clip(for: item) else { return }
+    private func deliver(_ item: PickItem, _ clip: Paster.Clip, _ delivery: Delivery) {
         let key = pickKey(item)
         let query = self.query
+        guard case .paste(let stayOpen) = delivery else {
+            close()
+            paster.deliver(clip, paste: false)
+            store.recordPick(key, query: query)
+            return
+        }
         let paste = paster.willPaste(prefs.pickMode)
         guard stayOpen else {
             close()
@@ -383,15 +459,29 @@ final class PickSession {
         // look. The new use and the learned word change the order the next time.
     }
 
-    /// ⌘C and the right-click "Copy only": the item goes on the clipboard, and the panel closes (D8).
-    /// It is a pick, so it counts a use and learns the search text.
-    func copyOnly() {
-        guard let item = selectedItem, let clip = clip(for: item) else { return }
-        let key = pickKey(item)
-        let query = self.query
-        close()
-        paster.deliver(clip, paste: false)
-        store.recordPick(key, query: query)
+    /// "Getting the GIF…" or "Getting the meme…".
+    static func gettingText(_ kind: ItemKind) -> String {
+        kind == .gif ? "Getting the GIF…" : "Getting the meme…"
+    }
+
+    /// "Can't get this GIF from KLIPY." or the same for a meme.
+    static func cantGetText(_ kind: ItemKind) -> String {
+        kind == .gif ? "Can't get this GIF from KLIPY." : "Can't get this meme from KLIPY."
+    }
+
+    /// Shows or hides the grey line at the top of the tab, and keeps the blue box and the scroll.
+    private func show(notice text: String?) {
+        guard notice != text else { return }
+        notice = text
+        guard isOpen else { return }
+        rebuild(keeping: selectedItem)
+        panel?.update()
+    }
+
+    /// A key, a tab or a different item stops the wait and the line. The caller builds the grid again.
+    private func stopWaiting() {
+        waitingFor = nil
+        notice = nil
     }
 
     /// What a pick puts on the clipboard: the shown emoji, or the file of a GIF or meme (D6 of YAZ-2919).
@@ -501,9 +591,12 @@ final class PickSession {
     }
 
     /// "Save to your GIFs" (or memes) of a KLIPY item (D7 of YAZ-2919): only its slug goes into the list.
+    /// With a search, the search text is the word of the item.
     func saveToYours(_ item: PickItem) {
-        guard case .online(let online) = item, let kind = item.kind else { return }
-        library.saveKlipy(online.id, kind: kind)
+        guard case .online(let online) = item else { return }
+        // The search text is its word, so the next search with that word shows it in "Yours".
+        let word = Search.normalize(query)
+        library.saveKlipy(online.id, kind: online.kind, words: word.isEmpty ? [] : [word])
         itemsChanged()
     }
 
@@ -539,11 +632,12 @@ final class PickSession {
         panel?.reload()
     }
 
+    /// New KLIPY results or items: the grid shows them, with the blue box on the same item and the same scroll.
     private func onlineChanged() {
         tileEntries = [:]
         guard isOpen, tab != .emoji, addingWordFor == nil else { return }
         rebuild(keeping: selectedItem)
-        panel?.reload()
+        panel?.update()
     }
 
     // MARK: Add a word (D4; D13 of YAZ-2919)
@@ -717,6 +811,7 @@ final class PickSession {
     /// With a search: "Yours", then "From KLIPY". No match anywhere: the line, then the sections of no search.
     private func buildTiles(_ kind: ItemKind, into grid: inout Grid) -> Int? {
         let entries = tiles(kind)
+        if let notice { grid.lines.append(.title(notice)) }
         // D4 of YAZ-2919: the tiles of your files are grey, and search and KLIPY still work.
         if library.mediaFolderIsMissing { grid.lines.append(.title(MediaFolder.missingText)) }
         func addMostUsedAndAll() {
@@ -740,7 +835,8 @@ final class PickSession {
         let learned = store.you.learned[text].map { Array($0.keys) } ?? []
         let yours = Search.ranked(for: query, in: entries + onlineEntries(kind, keys: learned), you: store.you)
         let fromOnline = online?.section(for: text, kind: kind)
-        if yours.isEmpty && (fromOnline?.items.isEmpty ?? true) {
+        // While KLIPY searches, the grid does not say "No match" yet.
+        if yours.isEmpty && (fromOnline?.items.isEmpty ?? true) && fromOnline?.isLoading != true {
             grid.lines.append(.title(PickSession.noTileMatchTitle(query.trimmingCharacters(in: .whitespaces))))
             if let line = fromOnline?.line { grid.lines.append(.title(line)) }
             addMostUsedAndAll()
@@ -764,7 +860,7 @@ final class PickSession {
             let pick: PickItem
             if item.file != nil {
                 pick = .own(item)
-            } else if let slug = item.klipyID, let found = online?.item(slug) {
+            } else if let slug = item.klipyID, let found = online?.item(slug, kind: kind) {
                 pick = .online(found)
             } else {
                 continue
@@ -782,8 +878,7 @@ final class PickSession {
         let start = tiles(kind).count
         var entries: [TileEntry] = []
         for key in keys.filter({ $0.hasPrefix("klipy:") }).sorted() {
-            guard let item = online.item(String(key.dropFirst("klipy:".count))), item.kind == kind,
-                  !isSaved(item) else { continue }
+            guard let item = online.item(String(key.dropFirst("klipy:".count)), kind: kind), !isSaved(item) else { continue }
             entries.append(TileEntry(item: .online(item), words: [], order: start + entries.count))
         }
         return entries

@@ -228,6 +228,15 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = grid
         background.addSubview(scrollView)
+        // A scroll near the end asks for the next KLIPY page (D11 of YAZ-2919).
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.grid.isNearEnd else { return }
+                self.session.reachedEnd()
+            }
+        }
     }
 
     /// A mask with round corners. The material and the shadow of the window follow it.
@@ -275,6 +284,11 @@ final class SearchPanelController: NSObject, PickPanel, NSWindowDelegate, NSText
         field.placeholderString = session.placeholder
         tabs.selectedSegment = session.tab.rawValue
         grid.reload()
+    }
+
+    func update() {
+        field.placeholderString = session.placeholder
+        grid.reload(keepingScroll: true)
     }
 
     func showSelection() {

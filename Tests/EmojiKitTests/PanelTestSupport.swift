@@ -139,6 +139,8 @@ final class FakePanel: PickPanel {
     func stepAside() { calls.append("stepAside") }
     func comeBack() { calls.append("comeBack") }
     func reload() {}
+    /// New KLIPY results: the grid keeps its scroll.
+    func update() { calls.append("update") }
     func showSelection() {}
 }
 
@@ -163,6 +165,9 @@ final class PickRig {
     private(set) var shownInFinder: [URL] = []
     /// The default preferences folder of the rig, and the Mac name "Test-Mac".
     var folders: PreferencesFolder { PreferencesFolder(defaultFolder: folder.defaultFolder, macName: "Test-Mac") }
+
+    /// The KLIPY key of `parts`: none by default.
+    let klipyKey = FakeKeyStore()
 
     init(catalog: [Emoji] = Catalog.all, trusted: Bool = true, online: OnlineResults? = nil) throws {
         folder = try TempFolder()
@@ -212,6 +217,10 @@ final class PickRig {
                  trash: FakeTrash(folder: folder.url.appendingPathComponent("Trash", isDirectory: true)),
                  thumbnailFolder: folder.url.appendingPathComponent("thumbs", isDirectory: true),
                  showInFinder: { _ in },
+                 klipyKey: klipyKey,
+                 // A stub session with no route: each request fails as "not connected". No test goes online.
+                 onlineSession: KlipyLibrary.makeSession(protocolClasses: [StubURLProtocol.self]),
+                 cacheFolder: folder.url.appendingPathComponent("Caches", isDirectory: true),
                  makePanel: { [panel] _ in panel })
     }
 }
@@ -228,11 +237,12 @@ extension PickSession {
     var emojis: [Emoji] { items.compactMap(\.emoji) }
 }
 
-/// KLIPY with no network (the seam of subissue 4). The test gives the known items and the results.
+/// KLIPY with no network (the seam of `OnlineResults`). The test gives the known items and the results.
 @MainActor
 final class FakeOnline: OnlineResults {
     var isOn = true
     var onChange: () -> Void = {}
+    var onPicture: () -> Void = {}
     /// The items that this session knows, by slug.
     var known: [String: OnlineItem] = [:]
     /// The "From KLIPY" results of each search text.
@@ -241,16 +251,21 @@ final class FakeOnline: OnlineResults {
     var files: [String: URL] = [:]
     private(set) var asked: [String] = []
 
-    func item(_ slug: String) -> OnlineItem? { known[slug] }
+    func item(_ slug: String, kind: ItemKind) -> OnlineItem? { known[slug].flatMap { $0.kind == kind ? $0 : nil } }
 
     func section(for text: String, kind: ItemKind) -> OnlineSection? {
         asked.append(text)
         return results[text]
     }
 
+    func loadMore(for text: String, kind: ItemKind) {}
+    func selectionChanged(to item: OnlineItem?) {}
     func pasteFile(for item: OnlineItem) -> URL? { files[item.id] }
+    func getPasteFile(for item: OnlineItem, done: @escaping @MainActor (URL?) -> Void) { done(files[item.id]) }
     func still(for item: OnlineItem) -> NSImage? { nil }
     func moving(for item: OnlineItem) -> NSImage? { nil }
+    func refresh() {}
+    func stop() {}
 
     /// A KLIPY GIF with this slug. The URLs are never loaded.
     static func gif(_ slug: String, kind: ItemKind = .gif) -> OnlineItem {

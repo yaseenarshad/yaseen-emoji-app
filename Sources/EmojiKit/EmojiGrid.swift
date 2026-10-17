@@ -154,6 +154,12 @@ final class EmojiGridView: NSView, NSMenuDelegate {
             guard let self else { return }
             setNeedsDisplay(visibleRect)
         }
+        // A KLIPY still or moving picture came (D11 of YAZ-2919).
+        session.online?.onPicture = { [weak self] in
+            guard let self else { return }
+            setNeedsDisplay(visibleRect)
+            showMovingTile()
+        }
     }
 
     @available(*, unavailable)
@@ -163,14 +169,25 @@ final class EmojiGridView: NSView, NSMenuDelegate {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// New lines: a new size, and all draws again. The list goes to the top, with the blue box in sight.
-    func reload() {
+    /// With `keepingScroll` (new KLIPY results, D11 of YAZ-2919), the list stays where you scrolled it.
+    func reload(keepingScroll: Bool = false) {
         metrics = GridMetrics(lines: session.lines, columns: session.columnCount)
         let visible = enclosingScrollView?.contentSize ?? bounds.size
         setFrameSize(NSSize(width: visible.width, height: max(metrics.height, visible.height)))
         needsDisplay = true
         drawnSelection = nil
-        scroll(.zero)
-        showSelection()
+        if keepingScroll {
+            drawnSelection = session.selection
+            showMovingTile()
+        } else {
+            scroll(.zero)
+            showSelection()
+        }
+    }
+
+    /// True when the bottom of the list is in sight, or less than two rows away: time for the next KLIPY page.
+    var isNearEnd: Bool {
+        visibleRect.maxY >= bounds.height - 2 * metrics.cellSize
     }
 
     /// The blue box moved: only the two cells draw again, and the list scrolls so the blue box is in sight.

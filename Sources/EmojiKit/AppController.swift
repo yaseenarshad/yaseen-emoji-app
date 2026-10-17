@@ -22,6 +22,12 @@ struct AppParts {
     var thumbnailFolder: URL
     /// "Show in Finder" of a GIF or meme (D13 of YAZ-2919).
     var showInFinder: (URL) -> Void
+    /// The KLIPY key (D2 of YAZ-2919): this Mac's Keychain in the app, a fake in a test.
+    var klipyKey: KeyStore
+    /// The network of KLIPY, with the 5 s time-out. A stub in a test, so no test goes online.
+    var onlineSession: URLSession
+    /// `~/Library/Caches/Yaseen Emoji` in the app. The paste files of KLIPY items go into `paste/` (D6 of YAZ-2919).
+    var cacheFolder: URL
     /// Makes the search panel on the screen for the session.
     var makePanel: (PickSession) -> PickPanel
 
@@ -38,6 +44,10 @@ struct AppParts {
             trash: SystemTrash(),
             thumbnailFolder: MediaImport.defaultThumbnailFolder,
             showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([$0]) },
+            klipyKey: KeychainKeyStore(),
+            onlineSession: KlipyLibrary.makeSession(),
+            cacheFolder: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Yaseen Emoji", isDirectory: true),
             makePanel: { SearchPanelController(session: $0) }
         )
     }
@@ -82,6 +92,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var panel: PickPanel?
     /// The still pictures of the tiles, for the life of the app (D11 of YAZ-2919).
     let thumbnails: Thumbnails
+    /// The temp files of KLIPY pastes (D6 of YAZ-2919). They go after 5 minutes and at quit.
+    let pasteFiles: PasteFiles
+    /// KLIPY in the GIFs and Memes tabs (D1 of YAZ-2919).
+    let klipy: KlipyResults
+    /// Deletes the old paste files each minute.
+    private var cleanUpTimer: Timer?
     private var settingsWindow: SettingsWindowController?
     private var addWindow: AddWindowController?
     private let log = Logger(subsystem: "com.yaseenarshad.yaseenemoji", category: "shell")
@@ -107,6 +123,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         addModel = AddModel(library: library)
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
         thumbnails = Thumbnails(folder: parts.thumbnailFolder)
+        pasteFiles = PasteFiles(cache: parts.cacheFolder, session: parts.onlineSession)
+        klipy = KlipyResults(keys: parts.klipyKey, session: parts.onlineSession, pasteFiles: pasteFiles, later: parts.later)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
                                  folders: folders)
     }
@@ -140,6 +158,21 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
         start()
         statusMenu.showInMenuBar()
+        // D6 of YAZ-2919: a paste file goes 5 minutes after its download, also when the panel stays closed.
+        cleanUpTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cleanUpPasteFiles() }
+        }
+    }
+
+    /// At quit, all the paste files go (D6 of YAZ-2919).
+    public func applicationWillTerminate(_ notification: Notification) {
+        pasteFiles.cleanUp(all: true)
+    }
+
+    /// Deletes the paste files that are older than 5 minutes, off the main thread.
+    func cleanUpPasteFiles() {
+        let files = pasteFiles
+        Task.detached(priority: .utility) { files.cleanUp() }
     }
 
     /// The app lives in the menu bar. To close a window does not quit it.
@@ -227,12 +260,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func catalogIsReady(_ catalog: [Emoji]) {
         if catalog.isEmpty { log.error("The emoji catalog is empty. emoji.json is missing or bad.") }
-        // No KLIPY yet: subissue 4 gives `online` (D1 of YAZ-2919).
         let session = PickSession(catalog: catalog, store: store, library: library, prefs: prefs, paster: paster,
-                                  thumbnails: thumbnails)
+                                  online: klipy, thumbnails: thumbnails)
         let panel = parts.makePanel(session)
         session.panel = panel
-        session.willOpen = { [weak self] in self?.reloadHistory() }
+        session.willOpen = { [weak self] in
+            self?.reloadHistory()
+            self?.cleanUpPasteFiles()
+        }
         session.showInFinder = parts.showInFinder
         session.onAddNew = { [weak self] in self?.addNew() }
         session.onAddFiles = { [weak self] in self?.openAddWindow($0) }
