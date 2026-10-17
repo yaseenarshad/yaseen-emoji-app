@@ -156,7 +156,7 @@ import UniformTypeIdentifiers
         #expect(rig.store.you.uses.isEmpty)
     }
 
-    /// D13: "Show in Finder" closes the panel and shows the file. "Add a GIF or meme…" calls the hook of subissue 3.
+    /// D13: "Show in Finder" closes the panel and shows the file. "Add a GIF or meme…" calls the hook of the add window.
     /// "Copy only" and "Add a word…" of the menu are the same calls as the keys.
     @Test func theOtherMenuActions() throws {
         let rig = try PickRig()

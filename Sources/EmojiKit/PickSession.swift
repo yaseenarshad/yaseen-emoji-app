@@ -151,7 +151,7 @@ final class PickSession {
         case showInFinder
         /// A KLIPY item (D7, D13 of YAZ-2919): "Save to your GIFs" and "Remove from your GIFs" (or memes).
         case saveToYours(ItemKind), removeFromYours(ItemKind)
-        /// "Add a GIF or meme…": the add window of subissue 3 (D12 of YAZ-2919).
+        /// "Add a GIF or meme…": the add window (D12 of YAZ-2919).
         case addNew
 
         var title: String {

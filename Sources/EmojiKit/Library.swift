@@ -250,8 +250,8 @@ public enum MediaFolder {
     }
 
     /// The folder to use: the chosen folder, or the preferences folder when none is chosen ("").
-    /// A chosen folder that is gone stays the folder, with `isMissing` true: the items show grey tiles,
-    /// and Settings shows the red line. The app never writes the files into a different folder in silence.
+    /// A chosen folder that is gone stays the folder, with `isMissing` true: your items do not show (D13 update on
+    /// YAZ-2926), the panel and Settings show the red line. The app never writes the files into a different folder in silence.
     public static func resolve(chosen: String, preferencesFolder: URL) -> (folder: URL, isMissing: Bool) {
         guard !chosen.isEmpty else { return (preferencesFolder, false) }
         let folder = URL(fileURLWithPath: chosen, isDirectory: true)
