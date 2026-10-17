@@ -540,6 +540,19 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         #expect(klipy.requests("media").count == 1)
         #expect(klipy.rig.store.you.uses["klipy:shaq-dance"]?.count == 1)
         #expect(klipy.rig.store.you.learned["hi"]?["klipy:shaq-dance"]?.count == 1)
+
+        // A prefetch with no pick: the 5-minute clean-up deletes its paste file, and the next open drops its entry.
+        let hello = try #require(klipy.klipy.item("hello-hi-662", kind: .gif))
+        klipy.klipy.selectionChanged(to: hello)
+        klipy.clock.advance(by: 0.3)
+        await waitUntil { klipy.klipy.pasteFile(for: hello) != nil }
+        let helloFile = try #require(klipy.klipy.pasteFile(for: hello))
+        #expect(klipy.klipy.pasteFileCount == 1)
+        klipy.klipy.refresh()
+        #expect(klipy.klipy.pasteFileCount == 1)
+        try FileManager.default.removeItem(at: helloFile)
+        klipy.klipy.refresh()
+        #expect(klipy.klipy.pasteFileCount == 0)
     }
 
     /// D6: Enter before the file is ready waits with "Getting the GIF…". After 3 s with no file:

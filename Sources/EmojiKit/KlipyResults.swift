@@ -81,6 +81,7 @@ final class KlipyResults: OnlineResults {
 
     // MARK: The paste files (D6)
 
+    /// The downloaded paste file of each item, by `fileKey`. A pick moves its file into the kept files (D18).
     private var files: [String: URL] = [:]
     private var downloads: [String: (token: Int, task: Task<Void, Never>)] = [:]
     private var waiters: [String: [Int: @MainActor (URL?) -> Void]] = [:]
@@ -146,6 +147,8 @@ final class KlipyResults: OnlineResults {
 
     func refresh() {
         keptFiles?.reload()
+        // The 5-minute clean-up deleted these paste files. Their entries go, so the list does not grow.
+        files = files.filter { FileManager.default.fileExists(atPath: $0.value.path) }
         failedLookups = [:]
         failedPictures = []
         movings.retryFailed()
@@ -450,6 +453,9 @@ final class KlipyResults: OnlineResults {
         guard let preview = item.preview else { return nil }
         return keptFiles?.file(for: item.id) ?? preview
     }
+
+    /// The count of the paste files that this session knows. For a test.
+    var pasteFileCount: Int { files.count }
 
     /// The URLs of the previews whose load runs now. For a test.
     var movingLoads: Set<URL> { movings.loading }
