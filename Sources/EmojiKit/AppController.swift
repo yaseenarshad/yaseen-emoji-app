@@ -16,6 +16,8 @@ struct AppParts {
     var keys: KeySender
     var access: PasteAccess
     var later: Later
+    /// The Trash for "Move to Trash" of a GIF or meme (D13 of YAZ-2919).
+    var trash: Trash
     /// Makes the search panel on the screen for the session.
     var makePanel: (PickSession) -> PickPanel
 
@@ -29,6 +31,7 @@ struct AppParts {
             keys: SystemKeySender(),
             access: SystemPasteAccess(),
             later: MainQueueLater(),
+            trash: SystemTrash(),
             makePanel: { SearchPanelController(session: $0) }
         )
     }
@@ -46,6 +49,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     let settings: SettingsModel
     let prefs: Prefs
     let store: YouStore
+    /// The list of GIFs and memes of all Macs (D3 of YAZ-2919).
+    let library: LibraryStore
     /// The preferences folder and the name of this Mac's history file (D16).
     let folders: PreferencesFolder
 
@@ -81,6 +86,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         // A chosen folder that is missing gives the default folder. Settings shows why (D16).
         let place = folders.resolve(chosen: prefs.preferencesFolder)
         store = YouStore(url: folders.ownFile(in: place.folder))
+        // The list stays in the preferences folder. The files are in the GIFs and memes folder (D4 of YAZ-2919).
+        let media = MediaFolder.resolve(chosen: prefs.mediaFolder, preferencesFolder: place.folder)
+        library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder,
+                               trash: parts.trash)
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
         settings = SettingsModel(prefs: prefs, hotKeys: hotKeys, loginItem: loginItem, access: parts.access, store: store,
                                  folders: folders)
@@ -166,6 +175,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
             // The bad file could not move away. The app keeps it and saves no change.
             log.error("The history file could not be read or moved. No change is saved: \(String(describing: error), privacy: .public)")
         }
+        library.load()
+        if let bad = library.movedBadFile {
+            log.error("\(self.library.url.lastPathComponent, privacy: .public) could not be read. It is now \(bad.lastPathComponent, privacy: .public).")
+        } else if let error = library.saveError {
+            log.error("The list of GIFs and memes could not be read or moved. No change is saved: \(String(describing: error), privacy: .public)")
+        }
+        if library.mediaFolderIsMissing {
+            log.error("Can't find the GIFs and memes folder \(self.library.mediaFolder.path, privacy: .public).")
+        }
 
         // The app continues to run when macOS refuses the hotkey. The menu still opens the panel,
         // and Settings shows the red line.
@@ -223,9 +241,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         session.open()
     }
 
-    /// Reads the changed history files of the other Macs (D16), and applies their newer settings.
-    /// The panel calls it each time it opens. With no change, it only lists the folder.
+    /// Reads the changed history files and lists of the other Macs (D16, D3 of YAZ-2919), and applies their
+    /// newer settings. The panel calls it each time it opens. With no change, it only lists the folders.
     func reloadHistory() {
+        library.reload()
         guard store.reload() else { return }
         settings.applySynced()
         settings.refresh()

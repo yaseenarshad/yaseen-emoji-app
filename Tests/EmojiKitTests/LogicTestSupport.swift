@@ -48,6 +48,26 @@ final class StepClock {
     }
 }
 
+/// A Trash in a temp folder. It never touches the real Trash. It refuses each file when `refuses` is true.
+final class FakeTrash: Trash {
+    struct Refused: Error {}
+
+    let folder: URL
+    var refuses = false
+    private(set) var trashed: [String] = []
+
+    init(folder: URL) {
+        self.folder = folder
+    }
+
+    func moveToTrash(_ url: URL) throws {
+        if refuses { throw Refused() }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: url, to: folder.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent))
+        trashed.append(url.lastPathComponent)
+    }
+}
+
 /// The median time of `body` in milliseconds, over `runs` runs.
 func medianMilliseconds(runs: Int, _ body: () throws -> Void) rethrows -> Double {
     var times: [Double] = []
