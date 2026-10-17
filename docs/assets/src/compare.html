@@ -1,0 +1,100 @@
+<!doctype html>
+<!--
+  The comparison picture of the README: docs/assets/compare.png.
+
+  USAGE (from the repository root):
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
+      --hide-scrollbars --force-device-scale-factor=2 --window-size=900,700 \
+      --screenshot="$PWD/docs/assets/compare.png" "file://$PWD/docs/assets/src/compare.html"
+
+  A change of a row is one line in ROWS below, then the command again.
+  Each cross reason was read on the product's own help page on 16 Oct 2026 (YAZ-2931).
+  Logos: Simple Icons 16.33.0 (CC0), in their brand colours. Slack: Simple Icons 15.22.0 (CC0; removed
+  in 16.0.0), drawn in Slack's four brand colours. The names and logos are trademarks of their owners.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --card: #14151f; --line: rgba(255,255,255,0.08); --text: #ffffff; --soft: rgba(255,255,255,0.55); }
+  html, body { margin: 0; background: var(--card); }
+  body { width: 900px; height: 700px; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+         color: var(--text); -webkit-font-smoothing: antialiased; overflow: hidden; }
+  .card { position: relative; width: 900px; height: 700px; box-sizing: border-box; padding: 18px 24px 0 30px;
+          background: radial-gradient(900px 500px at 75% 40%, #1f2140 0%, var(--card) 70%); }
+  .hi { position: absolute; top: 10px; right: 24px; width: 172px; height: 680px; border-radius: 18px;
+        background: linear-gradient(180deg, #7d6bff 0%, #5a48e6 100%);
+        box-shadow: 0 0 60px rgba(124, 107, 255, 0.55), inset 0 0 0 1px rgba(255,255,255,0.18); }
+  table { position: relative; border-collapse: collapse; width: 100%; table-layout: fixed; }
+  th { height: 96px; font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.86); vertical-align: middle; }
+  th .name { display: block; margin-top: 7px; }
+  th.me { font-size: 19px; color: #fff; }
+  .logo { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: #fff; }
+  .logo svg { width: 24px; height: 24px; }
+  .logo.none { background: transparent; }
+  .logo.blank { background: transparent; }
+  .logo img { width: 42px; height: 42px; }
+  td { border-top: 1px solid var(--line); height: 80px; text-align: center; vertical-align: middle; }
+  td.row { text-align: left; font-size: 20px; font-weight: 700; padding-right: 8px; line-height: 1.2; }
+  td.row small { display: block; font-size: 14px; font-weight: 500; color: var(--soft); margin-top: 3px; }
+  col.label { width: 270px; } col.other { width: 101px; } col.me { width: 172px; }
+  .mark { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; }
+  .no { background: #ef3b3b; } .yes { background: #fff; }
+  .mark svg { width: 18px; height: 18px; }
+  th .sub { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5); }
+  th .sub.me { color: rgba(255,255,255,0.85); }
+  .why.ok { color: rgba(255,255,255,0.6); }
+  .why { display: block; max-width: 84px; margin: 4px auto 0; font-size: 11.5px; font-weight: 700; color: #ff8f8f; line-height: 1.15; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="hi"></div>
+  <table>
+    <colgroup><col class="label"><col class="other"><col class="other"><col class="other"><col class="other"><col class="me"></colgroup>
+    <thead><tr id="head"><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<script>
+  // The columns: the other products first, Yaseen Emoji last.
+  const PRODUCTS = [
+    { name: "Slack", logo: { svg: '<path fill="#E01E5A" d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52z"/><path fill="#E01E5A" d="M6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z"/><path fill="#36C5F0" d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834z"/><path fill="#36C5F0" d="M8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z"/><path fill="#2EB67D" d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834z"/><path fill="#2EB67D" d="M17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312z"/><path fill="#ECB22E" d="M15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52z"/><path fill="#ECB22E" d="M15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>' } },
+    { name: "Telegram", logo: { color: "#26A5E4", d: "M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" } },
+    { name: "WhatsApp", logo: { color: "#25D366", d: "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" } },
+    { name: "iMessage", short: "Messages", logo: { color: "#34DA50", d: "M5.285 0A5.273 5.273 0 0 0 0 5.285v13.43A5.273 5.273 0 0 0 5.285 24h13.43A5.273 5.273 0 0 0 24 18.715V5.285A5.273 5.273 0 0 0 18.715 0ZM12 4.154a8.809 7.337 0 0 1 8.809 7.338A8.809 7.337 0 0 1 12 18.828a8.809 7.337 0 0 1-2.492-.303A8.656 7.337 0 0 1 5.93 19.93a9.929 7.337 0 0 0 1.54-2.155 8.809 7.337 0 0 1-4.279-6.283A8.809 7.337 0 0 1 12 4.154" } },
+  ];
+  // The rows, in the owner's order (YAZ-2931): the rows where the others fail first, then the basics that they all do.
+  // Each cell: [true or false, the short line below the mark or ""]. The last column (Yaseen Emoji) is always a tick.
+  const Y = [true, ""], N = [false, ""];
+  const ROWS = [
+    { text: "Works in every app", small: "one hotkey, ⌘E",
+      cells: [[false, "Only inside Slack"], [false, "Only inside Telegram"], [false, "Only inside WhatsApp"], [false, "Only inside Messages"]] },
+    { text: "The same favourites everywhere", small: "", cells: [N, N, N, N] },
+    { text: "Learns the words you type", small: "", cells: [[false, "Recent list only"], [false, "Recent list only"], [false, "Recent list only"], [false, "Recent list only"]] },
+    { text: "Open source", small: "you can read the code", cells: [N, [true, "Open-source apps"], N, N] },
+    { text: "Emoji search by word", small: "", cells: [Y, Y, Y, Y] },
+    { text: "GIF search", small: "", cells: [[true, "With the GIPHY app"], Y, Y, Y] },
+    { text: "Recently used", small: "", cells: [Y, Y, Y, Y] },
+  ];
+  const CROSS = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/></svg>';
+  const TICK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#16a34a" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const head = document.getElementById("head");
+  for (const p of PRODUCTS) {
+    const logo = p.logo ? `<span class="logo"><svg viewBox="0 0 24 24">${p.logo.svg || `<path fill="${p.logo.color}" d="${p.logo.d}"/>`}</svg></span>`
+                         : `<span class="logo blank"></span>`;
+    head.insertAdjacentHTML("beforeend", `<th>${logo}<span class="name">${p.name}</span><span class="sub">Picker inside ${p.short || p.name}</span></th>`);
+  }
+  head.insertAdjacentHTML("beforeend", `<th class="me"><span class="logo none"><img src="icon.png" alt=""></span><span class="name">Yaseen Emoji</span><span class="sub me">Works in every app</span></th>`);
+  const body = document.getElementById("rows");
+  for (const r of ROWS) {
+    let cells = `<td class="row">${r.text}${r.small ? `<small>${r.small}</small>` : ""}</td>`;
+    for (const [ok, why] of r.cells) {
+      cells += `<td><span class="mark ${ok ? "yes" : "no"}">${ok ? TICK : CROSS}</span>${why ? `<span class="why${ok ? " ok" : ""}">${why}</span>` : ""}</td>`;
+    }
+    cells += `<td><span class="mark yes">${TICK}</span></td>`;
+    body.insertAdjacentHTML("beforeend", `<tr>${cells}</tr>`);
+  }
+</script>
+</body>
+</html>
