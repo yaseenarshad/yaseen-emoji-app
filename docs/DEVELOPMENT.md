@@ -64,6 +64,13 @@ The history and the synced settings are in the preferences folder. The default i
 - **A missing folder:** the app uses the default folder, and Settings shows "Can't find the preferences folder. This Mac uses its own history."
 - **The files:** sorted keys, one value on each line, atomic writes.
 
+### GIFs and memes (D3 and D4 of YAZ-2919)
+
+- **The list:** `library-<Mac name>.json` in the preferences folder, one file for each Mac, with the same Mac name as `you-<Mac name>.json`. For each `id`, the newest `changed` of all Macs wins. The same time: the delete wins. A remove keeps the item with `removed`, so a later add on any Mac can win.
+- **The files:** `gifs/<id>.<ext>` and `memes/<id>.<ext>` in the GIFs and memes folder. The pref `yaseenEmoji.mediaFolder` stays on each Mac. "" is the preferences folder. The `id` is the first 16 hex characters of the SHA-256 of the file, so two Macs that add the same GIF write the same file.
+- **The counts and the learned words** stay in `you-<Mac name>.json`, with the keys `gif:<id>`, `meme:<id>` and `klipy:<klipyID>`.
+- **The still pictures:** `~/Library/Caches/Yaseen Emoji/thumbs/<id>.png`, 290 × 290 pixels. They are not synced.
+
 To point the app at a folder without Settings, quit the app, then run `defaults write com.yaseenarshad.yaseenemoji yaseenEmoji.preferencesFolder -string "<folder>"`, then open the app.
 
 ## The code
@@ -82,6 +89,9 @@ The parts of `EmojiKit`:
 - `Search`: the search and its order. The order is in one function, `Search.rank` (D5). A change of the order touches only that function and the table in `SearchTests`.
 - `YouStore.swift`: `You` (the contents of one history file), `You.merge` (the history of all Macs), and `YouStore` (this Mac's file, the files of the other Macs, reload, atomic save, the 5,000 learned pairs, the hidden emojis of "Your most used", the synced settings, the bad file). `You.key` is the one key of an emoji: no U+FE0F and no skin tone mark.
 - `PreferencesFolder`: the preferences folder (D16): the Mac name, the file names, the missing folder, and the first copy of this Mac's file.
+- `MacFiles.swift`: the parts that `YouStore` and `LibraryStore` share: the load of this Mac's file with the move of a bad file, the atomic save, the JSON format, and `OtherMacFiles` (reads only the changed files of the other Macs).
+- `Library.swift`: `Item` (one GIF or meme), `LibraryFile` (one `library-<Mac name>.json`), `LibraryStore` (this Mac's list, the lists of the other Macs, the add of a file, the remove to the Trash, the missing files), and `MediaFolder` (the GIFs and memes folder and its move). `Trash` is a protocol, so a test never touches the real Trash.
+- `MediaImport`: the add of a file (D5 and D8 of YAZ-2919): the kind from the bytes, MP4 and MOV to GIF, the 10 MB limit, the still picture of a tile, and the words of a meme with Vision. Each call runs off the main thread.
 - `YouImport`: `--import-uses`, the import of the EmojiFinder history.
 - `PickSession`: the rules of the panel with no window: the search text, the lines of the grid, the blue box, the keys, the picks, the default skin tone, "Add a word…", the items of the right-click menu (`menuActions(at:)`) and "Hide from Your most used".
 - `Paster`: a pick. It saves the clipboard, writes the emoji, posts ⌘V, and puts the old clipboard back after 0.3 s. `Clipboard`, `KeySender`, `PasteAccess` and `Later` are protocols, so a test posts no key and never waits.
@@ -99,8 +109,9 @@ The parts of `EmojiKit`:
 - A test opens no window and uses no mouse and no keyboard. A test posts no key event.
 - A test never registers a real hotkey or a real login item. It uses a fake one.
 - A test never reads or changes the real clipboard. It uses a fake one.
+- A test never touches the real Trash. It uses `FakeTrash` in a temp folder. The videos and pictures of the import tests are made in the test.
 - A test writes only into a temporary folder. It never reads the real `you.json` or the EmojiFinder database.
-- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, and the search. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
+- Some tests print `TIMING` lines: the load of `emoji.json`, the draw check, the search, and the change of a 5 s MP4 to a GIF. Run `swift test -c release -Xswiftc -enable-testing` for the numbers of a release build.
 - The window parts (the panel, the grid, the menu on the screen) have no test. Check them on the real screen.
 
 ### The log
