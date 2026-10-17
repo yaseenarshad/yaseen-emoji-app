@@ -161,6 +161,33 @@ import Testing
         #expect(session.menuActionsOutsideItems.isEmpty)
     }
 
+    /// D15 of YAZ-2894 for each item of "Your most used": a KLIPY GIF that you picked but did not save gets
+    /// "Hide from Your most used". Yaseen: "and there's no option to forget the gif?" The tile leaves the section,
+    /// the next item fills its place, and the hide is the key `klipy:<slug>` in `you-<Mac>.json`.
+    @Test func aPickedKLIPYGIFCanLeaveYourMostUsed() throws {
+        let online = FakeOnline()
+        let slugs = (0..<7).map { "picked-\($0)" }
+        for slug in slugs { online.known[slug] = FakeOnline.gif(slug) }
+        let rig = try PickRig(online: online)
+        // picked-0 has the most uses, picked-6 the fewest: only 6 fit in "Your most used".
+        for (place, slug) in slugs.enumerated() {
+            for _ in 0..<(slugs.count - place) { rig.store.recordPick("klipy:\(slug)", query: "") }
+        }
+        let session = rig.session
+        session.open()
+        session.select(tab: .gifs)
+        #expect(session.mostUsedItems == 0..<6)
+        #expect(session.items.prefix(6).map(\.key) == slugs.prefix(6).map { "klipy:\($0)" })
+        #expect(session.menuActions(at: 0) == [.saveToYours(.gif), .copyOnly, .hideFromMostUsed, .addNew])
+
+        session.perform(.hideFromMostUsed)
+        #expect(rig.store.you.isHidden("klipy:picked-0"))
+        #expect(session.isOpen && session.mostUsedItems == 0..<6)
+        #expect(session.items.prefix(6).map(\.key) == slugs.dropFirst().map { "klipy:\($0)" })
+        // The uses stay.
+        #expect(rig.store.you.uses["klipy:picked-0"]?.count == 7)
+    }
+
     /// D7: a pick of a KLIPY item counts `klipy:<slug>`, also when it is not saved. "Yours" then shows it for that text.
     /// "Save to your GIFs" keeps only its slug. With no KLIPY part, a saved KLIPY item does not show.
     @Test func aKLIPYPickCountsItsSlug() throws {

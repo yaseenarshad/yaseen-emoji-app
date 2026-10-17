@@ -524,7 +524,8 @@ final class PickSession {
     /// * An emoji: "Add a word…", "Copy only".
     /// * Your own GIF or meme: "Add a word…", "Copy only", "Show in Finder", "Move to Trash", "Add a GIF or meme…".
     /// * A saved KLIPY item: "Add a word…", "Copy only", "Remove from your GIFs", "Add a GIF or meme…".
-    /// * A KLIPY item that is not saved: "Save to your GIFs", "Copy only", "Add a GIF or meme…".
+    /// * A KLIPY item that is not saved: "Save to your GIFs", "Copy only", "Add a GIF or meme…". In "Your most used"
+    ///   (a KLIPY item that you picked) also "Hide from Your most used": D15 applies to each item of that section.
     func menuActions(at index: Int) -> [MenuAction] {
         guard items.indices.contains(index) else { return [] }
         let hide: [MenuAction] = mostUsedItems?.contains(index) == true ? [.hideFromMostUsed] : []
@@ -535,7 +536,7 @@ final class PickSession {
             return [.addWord, .copyOnly] + hide + [.showInFinder, .moveToTrash, .addNew]
         case .online(let item):
             if isSaved(item) { return [.addWord, .copyOnly] + hide + [.removeFromYours(item.kind), .addNew] }
-            return [.saveToYours(item.kind), .copyOnly, .addNew]
+            return [.saveToYours(item.kind), .copyOnly] + hide + [.addNew]
         }
     }
 
