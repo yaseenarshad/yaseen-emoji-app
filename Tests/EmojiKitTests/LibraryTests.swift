@@ -30,8 +30,9 @@ import Testing
         }
     }
 
-    /// D3: Mac A adds, Mac B removes later, and both see it removed. Mac A adds it again, and it comes back on both.
-    /// The same GIF on two Macs is one item, with the same file name. Each Mac writes only its own list.
+    /// D3: Mac A adds, and Mac B sees it. The same GIF on two Macs is one item, with the same file name. A remove of an
+    /// earlier build syncs, but the file on disk still shows (D22 of YAZ-3018). A new add brings the record back.
+    /// Each Mac writes only its own list.
     @Test func twoMacsAddRemoveAndAddAgain() throws {
         let folder = try TempFolder()
         let clock = StepClock()
@@ -56,21 +57,20 @@ import Testing
         #expect(macB.items.count == 1 && macB.items[0].words == ["dance", "party", "moves"])
 
         // B removes it later (an earlier build had "Move to Trash"): B writes the remove into its own list.
-        // The store touches no file.
+        // The store touches no file. The file is on disk, so it still shows on both Macs (D22 of YAZ-3018).
         macB.remove(dance.id)
         #expect(FileManager.default.fileExists(atPath: file.path))
-        #expect(macB.items.isEmpty && macB.item(dance.id)?.isRemoved == true)
+        #expect(macB.items.map(\.id) == [dance.id] && macB.all[dance.id]?.isRemoved == true)
         #expect(macA.reload())
-        #expect(macA.items.isEmpty && macA.item(dance.id)?.isRemoved == true)
+        #expect(macA.items.map(\.id) == [dance.id] && macA.all[dance.id]?.isRemoved == true)
         #expect(macA.own.items[dance.id]?.isRemoved == false)        // A never writes the change of B
 
-        // A adds it again after the remove: it comes back on both Macs, with the old and the new words.
+        // A adds it again after the remove: the record comes back on both Macs, with the old and the new words.
         let back = try macA.add(dance, words: ["groove"])
-        guard case .added(let item2) = back else { Issue.record("not added again"); return }
-        #expect(item2.words == ["dance", "party", "moves", "groove"])
-        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(back == .alreadyThere(macA.item(dance.id)!) && back.item.words == ["dance", "party", "moves", "groove"])
+        #expect(macA.all[dance.id]?.isRemoved == false)
         #expect(macB.reload())
-        #expect(macB.items.map(\.id) == [dance.id] && macB.missing.isEmpty)
+        #expect(macB.items.map(\.id) == [dance.id] && macB.all[dance.id]?.isRemoved == false && macB.missing.isEmpty)
 
         // A new start of each Mac reads the same list.
         let newA = store("A", in: folder, clock: clock)
@@ -231,7 +231,7 @@ import Testing
         #expect(MediaFolder.resolve(chosen: "", preferencesFolder: folder.defaultFolder) == (folder.defaultFolder, false))
         let macC = store("C", in: folder, clock: clock, media: place.folder)
         macC.load()
-        #expect(macC.mediaFolderIsMissing && macC.missing == [item.id] && macC.items.map(\.id) == [item.id])
+        #expect(macC.mediaFolderIsMissing && macC.missing == [item.id] && macC.items.isEmpty)
         #expect(throws: MediaFolder.Missing.self) { try macC.add(gif("two"), words: ["two"]) }
         #expect(!FileManager.default.fileExists(atPath: gone.path))
     }
@@ -300,6 +300,8 @@ import Testing
         let item = try macB.add(gif("b"), words: ["bee"]).item
         await app.ready?.value
         try #require(app.session).open()      // the panel reads the changed list
+        // The file is new to this Mac: its hash runs off the main thread, then the panel shows it (D27 of YAZ-3018).
+        await waitUntil { app.library.items.map(\.id) == [item.id] }
         #expect(app.library.items.map(\.id) == [item.id])
         app.session?.close()
     }
@@ -340,6 +342,7 @@ import Testing
         print("TIMING [\(buildKind)] list of 2000 items and 2000 cards: file \(bytes) bytes; load median "
               + "\(String(format: "%.1f", load)) ms; save at a KLIPY pick median \(String(format: "%.1f", pick)) ms; "
               + "MEMORY footprint \(String(format: "%.1f", (Double(after) - Double(before)) / 1_000_000)) MB more")
-        #expect(store.items.count == 2_000 && store.cards.count == 2_000)
+        // No file is on disk, so no item shows (D22 of YAZ-3018). The 2,000 records load.
+        #expect(store.all.count == 2_000 && store.items.isEmpty && store.cards.count == 2_000)
     }
 }

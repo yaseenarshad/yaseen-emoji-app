@@ -164,6 +164,8 @@ import UniformTypeIdentifiers
         let app = AppController(hotKeys: FakeHotKeyRegistrar(), loginItem: FakeLoginItem(), parts: rig.parts(catalog: smallCatalog(5)))
         app.start()
         await app.ready?.value
+        // The GIF is new to the app: its hash runs off the main thread (D27 of YAZ-3018).
+        await waitUntil { !app.library.items.isEmpty }
         let session = try #require(app.session)
 
         // Mac A: Keep off for memes, now.

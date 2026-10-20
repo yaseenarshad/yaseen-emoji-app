@@ -40,15 +40,14 @@ enum AddSource: Equatable {
                                   "screen shot", "screen recording", "cleanshot", "whatsapp image", "whatsapp video",
                                   "photo", "image", "video", "untitled", "pasted", "clipboard", "download", "giphy", "tenor"]
 
-    /// The title of a file name, or "" for a name that a camera or the system gave.
+    /// The title of a file name, or "" for a name that a camera or the system gave. It starts from the title of
+    /// the scan (`MediaName.title(ofName:)`, D23 of YAZ-3018), and also drops the camera names.
     static func title(fromName name: String) -> String {
-        var text = Item.cleanTitle(name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " "))
-        if let mark = text.range(of: #" ?\(\d+\)$"#, options: .regularExpression) { text.removeSubrange(mark) }
+        let text = MediaName.title(ofName: name)
         let lower = text.lowercased()
-        // Only digits and marks, a UUID, or a code name of the list (16 or more hex characters).
+        // Only digits and marks, or a UUID. `MediaName` already drops a code name of the list.
         if !lower.contains(where: \.isLetter) { return "" }
-        if lower.range(of: #"^[0-9a-f]{8} ?[0-9a-f]{4} ?[0-9a-f]{4} ?[0-9a-f]{4} ?[0-9a-f]{12}$"#, options: .regularExpression) != nil
-            || lower.range(of: #"^[0-9a-f]{16,}$"#, options: .regularExpression) != nil {
+        if lower.range(of: #"^[0-9a-f]{8} ?[0-9a-f]{4} ?[0-9a-f]{4} ?[0-9a-f]{4} ?[0-9a-f]{12}$"#, options: .regularExpression) != nil {
             return ""
         }
         // A camera word with digits after it, or with nothing after it. `photo booth fail` stays.
@@ -228,8 +227,11 @@ final class AddModel: ObservableObject {
 
     /// A drop, "Choose files…" or a paste: one row for each source. Each row shows "Getting it ready…" until
     /// `MediaImport.prepare` is done.
+    /// The store reads the folder again first (D27 of YAZ-3018): a picture that you put in Finder after the last open of
+    /// the panel is then known, and an add of the same picture from a different place writes no second file.
     func add(_ sources: [AddSource]) {
         guard !sources.isEmpty else { return }
+        library.reload()
         notice = nil
         for source in sources {
             let id = nextID
@@ -312,8 +314,9 @@ final class AddModel: ObservableObject {
     }
 
     /// "Add" (D12): needs one word. The file goes into `gifs/` or `memes/` off the main thread (owner note on
-    /// YAZ-2927), then `LibraryStore.add` saves the list on the main thread. The row goes away, and the item is
-    /// first in "Your GIFs" or "Your memes". A duplicate adds only its new words, and a new title that is not empty.
+    /// YAZ-2927), named with the title (D25 of YAZ-3018), then `LibraryStore.add` saves the list on the main thread.
+    /// The row goes away, and the item is first in "Your GIFs" or "Your memes". A duplicate adds only its new words.
+    /// A file that is already in the GIFs and memes folder is not copied: only its words go into the list (D25).
     func add(row id: Int) {
         guard let row = row(id), row.state == .ready, !row.isAdding, let file = row.file else { return }
         let words = Item.words(typed: row.words)
@@ -329,24 +332,28 @@ final class AddModel: ObservableObject {
         let title = row.title
         // `LibraryStore` is not safe for two threads, and the panel reads it on the main thread.
         // Thus only the write of the file runs off the main thread.
-        let target = library.place(of: file, as: kind)
-        track { [weak self] in
+        let target = library.place(of: file, as: kind, title: title)
+        let mediaFolder = library.mediaFolder
+        var source: URL?
+        if case .file(let url) = row.source { source = url }
+        track { [weak self, source] in
             do {
+                var written: URL?
                 if let target {
-                    try await Task.detached(priority: .userInitiated) {
-                        try LibraryStore.writeMediaFile(file.bytes, to: target)
+                    written = try await Task.detached(priority: .userInitiated) {
+                        try LibraryStore.fileToAdd(file.bytes, source: source, target: target, mediaFolder: mediaFolder)
                     }.value
                 }
-                self?.finishAdd(id, file, kind: kind, words: words, title: title)
+                self?.finishAdd(id, file, kind: kind, words: words, at: written)
             } catch {
                 self?.failAdd(id, error)
             }
         }
     }
 
-    private func finishAdd(_ id: Int, _ file: PreparedFile, kind: ItemKind, words: [String], title: String) {
+    private func finishAdd(_ id: Int, _ file: PreparedFile, kind: ItemKind, words: [String], at written: URL?) {
         do {
-            let result = try library.add(file, as: kind, words: words, title: title)
+            let result = try library.add(file, as: kind, words: words, at: written)
             rows.removeAll { $0.id == id }
             if rows.isEmpty { isAskingToClose = false }
             markDuplicates()
@@ -368,7 +375,8 @@ final class AddModel: ObservableObject {
     private func markDuplicates() {
         for place in rows.indices {
             guard let file = rows[place].file else { continue }
-            let existing = library.item(file.id).flatMap { $0.isRemoved ? nil : $0 }
+            // Only a file on disk is a duplicate (D22 of YAZ-3018): a record whose file is missing is not.
+            let existing = library.item(file.id).flatMap { $0.isRemoved || library.missing.contains($0.id) ? nil : $0 }
             if rows[place].existing != existing {
                 rows[place].existing = existing
                 if let existing {

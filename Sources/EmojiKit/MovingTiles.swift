@@ -29,6 +29,15 @@ final class MovingPictures {
         cache.countLimit = kept
     }
 
+    /// The URL of your own GIF file for `want(_:)`: the file with its `id` as the fragment. The cache key then has the
+    /// path and the `id`, so an edit in place (a new hash at the same path, D22 of YAZ-3018) loads the new picture.
+    /// A load of a file URL ignores the fragment.
+    static func ownURL(_ file: URL, id: String) -> URL {
+        var parts = URLComponents(url: file, resolvingAgainstBaseURL: false)
+        parts?.fragment = id
+        return parts?.url ?? file
+    }
+
     /// The moving picture of `url`, or nil when it is not in memory.
     func image(for url: URL) -> NSImage? {
         cache.object(forKey: url.absoluteString as NSString)

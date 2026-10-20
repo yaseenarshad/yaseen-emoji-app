@@ -111,14 +111,15 @@ import UniformTypeIdentifiers
         await #expect(throws: MediaImport.Failure.unreadable) { try await MediaImport.prepare(fake) }
     }
 
-    /// D5: the still picture is a 290 × 290 PNG of the first frame. It is made again when it is missing.
+    /// D5: the still picture is a 290 × 290 PNG of the first frame, named by the `id` (D22 of YAZ-3018).
+    /// It is made again when it is missing.
     @Test func theStillPictureOfATile() async throws {
         let folder = try TempFolder()
-        let file = folder.url.appendingPathComponent("3fa9c1d2e8b04a77.gif")
+        let file = folder.url.appendingPathComponent("dance.gif")
         try makeTestImage(width: 600, height: 200, type: .gif, frames: 2).write(to: file)
         let thumbs = folder.url.appendingPathComponent("Caches/thumbs", isDirectory: true)
 
-        let thumb = try await MediaImport.thumbnail(of: file, into: thumbs)
+        let thumb = try await MediaImport.thumbnail(of: file, id: "3fa9c1d2e8b04a77", into: thumbs)
         #expect(thumb == thumbs.appendingPathComponent("3fa9c1d2e8b04a77.png"))
         let bytes = try Data(contentsOf: thumb)
         let info = frameInfo(bytes)
@@ -126,11 +127,11 @@ import UniformTypeIdentifiers
         #expect(CGImageSourceCreateWithData(bytes as CFData, nil).flatMap(CGImageSourceGetType) as String? == UTType.png.identifier)
 
         let made = try FileManager.default.attributesOfItem(atPath: thumb.path)[.modificationDate] as? Date
-        try await MediaImport.thumbnail(of: file, into: thumbs)            // it is there: no new picture
+        try await MediaImport.thumbnail(of: file, id: "3fa9c1d2e8b04a77", into: thumbs)  // it is there: no new picture
         #expect(try FileManager.default.attributesOfItem(atPath: thumb.path)[.modificationDate] as? Date == made)
         MediaImport.removeThumbnail(of: "3fa9c1d2e8b04a77", in: thumbs)
         #expect(!FileManager.default.fileExists(atPath: thumb.path))
-        try await MediaImport.thumbnail(of: file, into: thumbs)            // missing: made again
+        try await MediaImport.thumbnail(of: file, id: "3fa9c1d2e8b04a77", into: thumbs)  // missing: made again
         #expect(frameInfo(try Data(contentsOf: thumb)).width == 290)
     }
 

@@ -172,7 +172,8 @@ final class MemePreviewController {
 
     /// Loads the picture off the main thread, at most `largestPixels` on the long side, and keeps the last 8.
     private func showPicture(at url: URL, for item: PickItem) {
-        let key = url.absoluteString as NSString
+        // The key of the item with the URL: an edit in place keeps the path but gives a new `id` (D22 of YAZ-3018).
+        let key = "\(item.key) \(url.absoluteString)" as NSString
         if let image = pictures.object(forKey: key) {
             imageView.image = image
             return
