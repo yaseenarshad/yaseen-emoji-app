@@ -58,9 +58,9 @@ import Testing
         #expect(kept.contains(299) && !kept.contains(0))
     }
 
-    /// A still picture loads off the main thread into the cache. The remove of an item on a different Mac
-    /// (or in an earlier build) deletes it at the next open (D5, owner note on YAZ-2925). So does a file that you
-    /// deleted in Finder (D13 update on YAZ-2926).
+    /// A still picture loads off the main thread into the cache. A file that you changed in an editor gets a new hash
+    /// (D22 of YAZ-3018): the still picture of the old item goes at the next open (D5, owner note on YAZ-2925). So does
+    /// a file that you deleted in Finder (D13 update on YAZ-2926).
     @Test func theStillPictureLoadsAndGoesWithItsItem() async throws {
         let rig = try PickRig()
         let gif = try rig.addOwn(words: ["dance"])
@@ -80,13 +80,10 @@ import Testing
         rig.session.open()
         rig.session.select(tab: .gifs)
 
-        // Mac B removes the other GIF. This Mac sees it at the next open, and deletes its still picture.
+        // You crop the other GIF: a new hash, so a new item. The old item leaves at the next open, with its still picture.
         let otherStill = rig.thumbnails.folder.appendingPathComponent("\(other.id).png")
         #expect(FileManager.default.fileExists(atPath: otherStill.path))
-        let macB = LibraryStore(url: rig.folder.defaultFolder.appendingPathComponent("library-B.json"),
-                                mediaFolder: rig.folder.defaultFolder, now: { Date(timeIntervalSince1970: 1_900_000_000) })
-        macB.load()
-        macB.remove(other.id)
+        try makeTestImage(width: 30, height: 30, type: .gif, frames: 2).write(to: try #require(rig.library.fileURL(of: other)))
         rig.session.close()
         rig.session.open()
         rig.session.select(tab: .gifs)

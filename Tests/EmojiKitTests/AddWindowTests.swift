@@ -69,7 +69,8 @@ final class FakeTextReader {
         await model.settle()
         #expect(model.rows.isEmpty)
         guard case .added(let added) = try #require(results.first) else { Issue.record("not a new item"); return }
-        #expect(added.words == ["dance", "party"] && added.file == "gifs/\(added.id).gif")
+        // The Title box had "dance": the file gets that name (D25 of YAZ-3018).
+        #expect(added.words == ["dance", "party"] && added.file == "gifs/dance.gif" && added.title == "dance")
         #expect(FileManager.default.fileExists(atPath: try #require(rig.library.fileURL(of: added)).path))
         #expect(rig.library.items(.gif).map(\.id) == [added.id, older.id])
 

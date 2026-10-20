@@ -24,7 +24,8 @@ struct AppParts {
     var klipyKey: KeyStore
     /// The network of KLIPY, with the 5 s time-out. A stub in a test, so no test goes online.
     var onlineSession: URLSession
-    /// `~/Library/Caches/Yaseen Emoji` in the app. The paste files of KLIPY items go into `paste/` (D6 of YAZ-2919).
+    /// `~/Library/Caches/Yaseen Emoji` in the app. The paste files of KLIPY items go into `paste/` (D6 of YAZ-2919),
+    /// and the hash cache of the files is `files.json` (D27 of YAZ-3018).
     var cacheFolder: URL
     /// The files of the KLIPY items that you used (D18 of YAZ-2919): `~/Library/Application Support/Yaseen Emoji/klipy`
     /// in the app, on this Mac only. A temp folder in a test.
@@ -122,7 +123,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         store = YouStore(url: folders.ownFile(in: place.folder))
         // The list stays in the preferences folder. The files are in the GIFs and memes folder (D4 of YAZ-2919).
         let media = MediaFolder.resolve(chosen: prefs.mediaFolder, preferencesFolder: place.folder)
-        library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder)
+        // The hash cache of D27 on YAZ-3018: `~/Library/Caches/Yaseen Emoji/files.json` in the app.
+        library = LibraryStore(url: place.folder.appendingPathComponent(folders.libraryFileName), mediaFolder: media.folder,
+                               cacheURL: parts.cacheFolder.appendingPathComponent("files.json"))
         addModel = AddModel(library: library)
         paster = Paster(clipboard: parts.clipboard, keys: parts.keys, access: parts.access, later: parts.later)
         thumbnails = Thumbnails(folder: parts.thumbnailFolder)
@@ -234,6 +237,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
             // The bad file could not move away. The app keeps it and saves no change.
             log.error("The history file could not be read or moved. No change is saved: \(String(describing: error), privacy: .public)")
         }
+        // D27 of YAZ-3018: the hashes of new files run off the main thread. The panel shows them when they are ready.
+        library.onHashed = { [weak self] in self?.session?.filesChanged() }
         library.load()
         if let bad = library.movedBadFile {
             log.error("\(self.library.url.lastPathComponent, privacy: .public) could not be read. It is now \(bad.lastPathComponent, privacy: .public).")

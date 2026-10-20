@@ -396,9 +396,10 @@ func klipyPage(_ rig: KlipyRig, _ slugs: [String], page: Int = 1, hasNext: Bool 
         await waitUntil { rig.library.items(.gif).count == 1 }
         let own = try #require(rig.library.items(.gif).first)
         let copied = PreparedFile(bytes: two, ext: "gif", kind: .gif)
-        #expect(own.id == copied.id && own.file == "gifs/\(copied.id).gif" && own.key == "gif:\(copied.id)")
+        // The file gets KLIPY's title as its name (D25 of YAZ-3018).
+        #expect(own.id == copied.id && own.file == "gifs/Cat Two.gif" && own.key == "gif:\(copied.id)")
         #expect(own.title == "Cat Two" && own.words == ["cat"] && own.klipyID == "cat-2")
-        #expect(try Data(contentsOf: rig.folder.defaultFolder.appendingPathComponent("gifs/\(copied.id).gif")) == two)
+        #expect(try Data(contentsOf: rig.folder.defaultFolder.appendingPathComponent("gifs/Cat Two.gif")) == two)
         #expect(klipy.requests("media").count == 1)
         #expect(klipy.kept.names == ["cat-2.gif"])
         // The card stays. "Yours" shows your item, and not the card a second time. "From KLIPY" keeps KLIPY's order.

@@ -215,9 +215,7 @@ final class PickSession {
         thumbnails?.retryFailed()
         // A missing GIFs and memes folder (an unmounted drive) hides all your items: their still pictures stay.
         if !library.mediaFolderIsMissing {
-            thumbnails?.removeStills(keeping: Set(library.items.compactMap { item in
-                item.file != nil && !library.missing.contains(item.id) ? item.id : nil
-            }))
+            thumbnails?.removeStills(keeping: Set(library.items.compactMap { item in item.file != nil ? item.id : nil }))
         }
         rebuild()
         panel?.reload()
@@ -505,9 +503,8 @@ final class PickSession {
         case .emoji(let emoji):
             return .text(shown(emoji))
         case .own(let item):
-            guard !library.mediaFolderIsMissing, !library.missing.contains(item.id), let url = library.fileURL(of: item) else {
-                return nil
-            }
+            // The path of the scan (D27 of YAZ-3018). A missing file, or a missing folder, has none.
+            guard let url = library.fileURL(of: item) else { return nil }
             return Paster.Clip.file(at: url)
         case .online(let item):
             return online?.pasteFile(for: item).map { .file($0, type: item.fileType) }
@@ -598,7 +595,8 @@ final class PickSession {
     }
 
     /// "Save to your GIFs" (or memes) of a KLIPY item (D18 of YAZ-2919): its file becomes your own item in `gifs/`
-    /// or `memes/`, with KLIPY's title. The file is the kept file, else the paste file (a download of up to 3 s).
+    /// or `memes/`, named with KLIPY's title (D25 of YAZ-3018). The file is the kept file, else the paste file (a download
+    /// of up to 3 s).
     /// With a search, the search text is the word of the item. The card of the item stays.
     func saveToYours(_ item: PickItem) {
         guard case .online(let found) = item, let online else { return }
@@ -620,10 +618,13 @@ final class PickSession {
     private func copyToYours(_ url: URL, _ found: OnlineItem, words: [String]) async {
         do {
             let file = try await MediaImport.prepare(url)
-            if let target = library.place(of: file, as: found.kind) {
-                try await Task.detached(priority: .userInitiated) { try LibraryStore.writeMediaFile(file.bytes, to: target) }.value
+            var written: URL?
+            if let target = library.place(of: file, as: found.kind, title: found.title) {
+                written = try await Task.detached(priority: .userInitiated) {
+                    try LibraryStore.writeMediaFile(file.bytes, to: target)
+                }.value
             }
-            try library.add(file, as: found.kind, words: words, title: found.title, klipyID: found.id)
+            try library.add(file, as: found.kind, words: words, klipyID: found.id, at: written)
             forgetEntries()
             guard isOpen, question == nil else { return }
             rebuild(keeping: selectedItem)
@@ -660,6 +661,15 @@ final class PickSession {
     /// new KLIPY items, or a switch.
     private func forgetEntries() {
         entries.forget()
+    }
+
+    /// The hashes of new files are ready (D27 of YAZ-3018): the open GIFs or Memes tab shows them, with the blue box
+    /// on the same item.
+    func filesChanged() {
+        forgetEntries()
+        guard isOpen, tab != .emoji, question == nil else { return }
+        rebuild(keeping: selectedItem)
+        panel?.reload()
     }
 
     /// The list changed: the grid shows it at once, with the blue box on the same item when it is still there.
@@ -735,7 +745,9 @@ final class PickSession {
         }
     }
 
-    /// Enter while "Add a word…" or "Rename…" waits. An empty word adds nothing. An empty title clears the title.
+    /// Enter while "Add a word…" or "Rename…" waits. An empty word adds nothing. "Rename…" renames the file (D24 of
+    /// YAZ-3018): an empty text or the same name changes nothing, and a failure shows "Can't rename the file." with the
+    /// reason as the grey line.
     private func finishQuestion() {
         guard let question else { return }
         let text = query
@@ -745,9 +757,13 @@ final class PickSession {
             add(text, to: item)
         case .title(let item):
             guard case .own(let own) = item else { break }
-            library.setTitle(text, of: own.id)
+            do {
+                try library.rename(own.id, to: text)
+            } catch {
+                notice = error.localizedDescription
+            }
             forgetEntries()
-            query = Item.cleanTitle(text)
+            query = library.item(own.id)?.title ?? ""
         }
         // The search box shows the word or the title, so the item shows as a result at once.
         rebuild(keeping: question.item)
@@ -768,7 +784,8 @@ final class PickSession {
         "Type a title for \"\(shortName(of: item))\". Enter saves. Esc stops."
     }
 
-    /// The text below a tile: the title, else the first 3 words of the item. A KLIPY tile shows KLIPY's title.
+    /// The text below a tile: the title (the file name of your own item, D23 of YAZ-3018), else the first 3 words of the
+    /// item. A KLIPY tile shows KLIPY's title.
     /// An emoji has none.
     static func label(of item: PickItem) -> String {
         switch item {
@@ -785,7 +802,7 @@ final class PickSession {
     }
 
     /// The right-click "Rename…" of your own GIF or meme. The search box asks for the title, and starts with the
-    /// title that the item has. The file keeps its name (D4).
+    /// title that the item has: its file name (D23 of YAZ-3018). Enter renames the file (D24 of YAZ-3018).
     func rename(_ item: PickItem) {
         guard case .own(let own) = item else { return }
         query = library.item(own.id)?.title ?? own.title

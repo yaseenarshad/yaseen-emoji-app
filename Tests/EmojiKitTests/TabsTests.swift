@@ -306,8 +306,9 @@ import Testing
     }
 
     /// The bulk add `--add-media`: it adds into this Mac's list and `gifs/` or `memes/` of the preferences folder of
-    /// the prefs, with the rules of the add window. With no words, the words come from the file name. A new item gets
-    /// the title of its file name (D15 of YAZ-2919). Fake prefs and a temp folder.
+    /// the prefs, with the rules of the add window. With no words, the words come from the file name. A new file keeps
+    /// the title of its file name as its name (D15 of YAZ-2919, D25 of YAZ-3018). A file that is already in the folder
+    /// is not copied: only its words go into the list. Fake prefs and a temp folder.
     @Test func theBulkAddCommandAddsGIFsAndMemes() async throws {
         let folder = try TempFolder()
         let gif = folder.url.appendingPathComponent("party.gif")
@@ -334,14 +335,32 @@ import Testing
         #expect(library.items(.meme).map(\.words) == [["happy", "dance"]])
         #expect(library.items.map(\.title).sorted() == ["Happy Dance 2024", "party"])
         #expect(library.missing.isEmpty && library.items.allSatisfy { library.fileURL(of: $0) != nil })
-        #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("gifs")).count == 1)
-        // The same file again: "Already there", and the new words are added.
+        #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("gifs")) == ["party.gif"])
+        #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("memes")) == ["Happy Dance 2024.png"])
+        // The same file again: "Already there", and the new words are added. A rename keeps its name.
         let gifID = try #require(library.items(.gif).first?.id)
-        library.setTitle("Party time", of: gifID)
+        try library.rename(gifID, to: "Party time")
         #expect(await run([gif.path, "--words", "yay"]) == 0)
         #expect(lines.last?.hasPrefix("Already there: GIF") == true)
         library.load()
         #expect(library.item(gifID)?.title == "Party time")
         #expect(library.item(gifID)?.words == ["dance", "party", "yay"])
+        #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("gifs")) == ["Party time.gif"])
+
+        // A file that Yaseen put in a subfolder in Finder: the agent adds its words, and the add makes no copy.
+        let circle = folder.defaultFolder.appendingPathComponent("memes/Infinite game/circle.png")
+        try FileManager.default.createDirectory(at: circle.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try makeTestImage(width: 50, height: 50, type: .png).write(to: circle)
+        #expect(await run([circle.path, "--words", "loop"]) == 0)
+        #expect(lines.last?.hasPrefix("Already there: meme") == true)      // the scan of the command knows it
+        library.load()
+        let found = try #require(library.items(.meme).first { $0.title == "circle" })
+        #expect(found.words == ["loop"] && library.fileURL(of: found)?.lastPathComponent == "circle.png")
+        #expect(folder.names(in: folder.defaultFolder.appendingPathComponent("memes")) == ["Happy Dance 2024.png", "Infinite game"])
+        // Again, with a new word: "Already there".
+        #expect(await run([circle.path, "--words", "circle of life"]) == 0)
+        #expect(lines.last?.hasPrefix("Already there: meme") == true)
+        library.load()
+        #expect(library.item(found.id)?.words == ["loop", "circle", "of", "life"])
     }
 }

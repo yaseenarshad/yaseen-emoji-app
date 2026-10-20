@@ -31,4 +31,10 @@ if let flag = arguments.firstIndex(of: "--add-media") {
     exit(AddCommand.runAndWait(Array(arguments[(flag + 1)...])))
 }
 
+// `YaseenEmoji --name-files`: gives the files with a code name at the top of `gifs/` and `memes/` a real name, one time
+// (D26 of YAZ-3018). The app must not run. It prints one line for each file and exits.
+if arguments.contains("--name-files") {
+    exit(NameCommand.runAndWait())
+}
+
 AppController.main()

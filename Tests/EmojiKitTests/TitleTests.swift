@@ -4,7 +4,8 @@ import UniformTypeIdentifiers
 @testable import EmojiKit
 
 /// The title of each GIF and meme (D15 of YAZ-2919): the list file, the sync, the Title box of the add window,
-/// "Rename…", the text below a tile, and the search. No test makes a window. The files are made in the test.
+/// "Rename…", the text below a tile, and the search. Since D23 and D24 of YAZ-3018, the title of your own file is its
+/// file name, and "Rename…" renames the file. No test makes a window. The files are made in the test.
 @MainActor
 @Suite struct TitleTests {
     /// Adds your own meme (a PNG made in the test) with a title. `seed` makes the bytes different.
@@ -15,6 +16,7 @@ import UniformTypeIdentifiers
     }
 
     /// A list file of an earlier build has no `title`. It loads, and each item gets "". The next save writes the field.
+    /// Its file is not on disk, so it does not show (D22 of YAZ-3018), and a change of its words still saves.
     @Test func anOldListFileWithNoTitleLoads() throws {
         let folder = try TempFolder()
         try FileManager.default.createDirectory(at: folder.defaultFolder, withIntermediateDirectories: true)
@@ -39,13 +41,15 @@ import UniformTypeIdentifiers
         let item = try #require(store.item("3fa9c1d2e8b04a77"))
         #expect(item.title == "" && item.words == ["midwit", "mba"] && item.kind == .meme)
 
-        store.setTitle("  Midwit   MBA ", of: item.id)
+        #expect(store.items.isEmpty && store.missing == [item.id])
+        store.addWords(["smart"], to: item.id)
         let saved = try String(contentsOf: url, encoding: .utf8)
-        #expect(saved.contains("\"title\" : \"Midwit MBA\""))
-        #expect(store.item(item.id)?.file == "memes/3fa9c1d2e8b04a77.png")
+        #expect(saved.contains("\"title\" : \"\""))
+        #expect(store.item(item.id)?.file == "memes/3fa9c1d2e8b04a77.png" && store.item(item.id)?.words == ["midwit", "mba", "smart"])
     }
 
-    /// D3: the title syncs with the item, and the newest `changed` wins. Each Mac writes only its own list.
+    /// D23, D24 of YAZ-3018: the title is the file name on each Mac. A rename on Mac B moves the file (git syncs the
+    /// move), and Mac A shows the new title at its next open. No list file changes. The rule of `Item.winner` stays.
     @Test func theTitleSyncsAndTheNewestChangeWins() throws {
         let folder = try TempFolder()
         let clock = StepClock()
@@ -58,19 +62,16 @@ import UniformTypeIdentifiers
         macB.load()
         let meme = PreparedFile(bytes: makeTestImage(width: 40, height: 30, type: .png), ext: "png", kind: .meme)
         let item = try macA.add(meme, words: ["fine"], title: "This is fine").item
-        #expect(item.title == "This is fine")
+        #expect(item.title == "This is fine" && item.file == "memes/This is fine.png")
 
         #expect(macB.reload())
         #expect(macB.item(item.id)?.title == "This is fine")
-        // B renames later: A sees the title of B at its next open.
-        macB.setTitle("Fine dog", of: item.id)
+        // B renames later: A sees the title of B at its next open. The list files do not change.
+        let listA = try Data(contentsOf: macA.url)
+        #expect(try macB.rename(item.id, to: "Fine dog"))
         #expect(macA.reload())
-        #expect(macA.item(item.id)?.title == "Fine dog")
-        #expect(macA.own.items[item.id]?.title == "This is fine")      // A never writes the change of B
-        // A clears it even later: the empty title wins on both Macs.
-        macA.setTitle("", of: item.id)
-        #expect(macB.reload())
-        #expect(macB.item(item.id)?.title == "" && macA.item(item.id)?.title == "")
+        #expect(macA.item(item.id)?.title == "Fine dog" && macA.item(item.id)?.words == ["fine"])
+        #expect(try Data(contentsOf: macA.url) == listA && macB.own.items.isEmpty)
         // The same time on two Macs: each Mac selects the same item.
         var one = item, two = item
         one.title = "a"
@@ -97,8 +98,9 @@ import UniformTypeIdentifiers
         #expect(AddSource.bytes(Data(), type: .gif).suggestedTitle == "")
     }
 
-    /// The Title box in the rows: the file name fills it, the add keeps the text, a paste has an empty box,
-    /// and a duplicate keeps the title of its item unless you type a new one.
+    /// The Title box in the rows: the file name fills it, the add names the file with the text (D25 of YAZ-3018), a paste
+    /// has an empty box and gets the code name, and a duplicate shows the title of its item. A duplicate adds only its
+    /// words: a typed title changes nothing.
     @Test func theTitleBoxOfTheAddWindow() async throws {
         let rig = try PickRig()
         let model = AddModel(library: rig.library, readText: { _ in [] })
@@ -113,7 +115,7 @@ import UniformTypeIdentifiers
         model.add(row: model.rows[0].id)
         await model.settle()
         let item = try #require(rig.library.items(.meme).first)
-        #expect(item.title == "Midwit MBA" && item.words == ["midwit"])
+        #expect(item.title == "Midwit MBA" && item.words == ["midwit"] && item.file == "memes/Midwit MBA.png")
 
         // The same file again: the box shows the title of the item, and an empty box keeps it.
         let again = rig.folder.url.appendingPathComponent("IMG_2231.png")
@@ -128,7 +130,7 @@ import UniformTypeIdentifiers
         await model.settle()
         #expect(rig.library.item(item.id)?.title == "Midwit MBA" && rig.library.item(item.id)?.words == ["midwit", "mba"])
 
-        // A typed new title replaces it.
+        // A typed new title changes nothing: "Rename…" changes the name.
         model.add([.file(again)])
         await model.settle()
         let third = try #require(model.rows.last)
@@ -136,13 +138,22 @@ import UniformTypeIdentifiers
         model.setWords("smart", of: third.id)
         model.add(row: third.id)
         await model.settle()
-        #expect(rig.library.item(item.id)?.title == "Smart guy")
+        #expect(rig.library.item(item.id)?.title == "Midwit MBA")
         #expect(rig.library.items(.meme).count == 1)
+
+        // The paste of bytes has no title: the file gets the code name `<id>.png`.
+        let paste = try #require(model.rows.first)
+        model.setWords("paste", of: paste.id)
+        model.add(row: paste.id)
+        await model.settle()
+        let pasted = try #require(rig.library.items(.meme).first { $0.words == ["paste"] })
+        #expect(pasted.file == "memes/\(pasted.id).png" && pasted.title == "")
+        #expect(rig.folder.names(in: rig.folder.defaultFolder.appendingPathComponent("memes")) == ["Midwit MBA.png", "\(pasted.id).png"].sorted())
     }
 
-    /// "Rename…" is only on your own GIFs and memes. The search box asks for the title, Enter saves it, and an empty
-    /// text clears it. Esc stops with no change. The file keeps its name and its bytes.
-    @Test func renameSetsAndClearsTheTitle() throws {
+    /// "Rename…" is only on your own GIFs and memes. The search box asks for the title, and Enter renames the file
+    /// (D24 of YAZ-3018). Esc, an empty text and the same name change nothing. The bytes and the words stay.
+    @Test func renameRenamesTheFile() throws {
         let online = FakeOnline()
         let found = FakeOnline.gif("fine-dog", kind: .meme)
         online.known = ["fine-dog": found]
@@ -171,6 +182,9 @@ import UniformTypeIdentifiers
         session.enter(shift: false)
         #expect(rig.library.item(meme.id)?.title == "This is fine")
         #expect(session.query == "This is fine" && session.selectedItem?.key == meme.key && session.selection == 0)
+        let renamed = file.deletingLastPathComponent().appendingPathComponent("This is fine.png")
+        #expect(rig.library.fileURL(of: meme) == renamed && !FileManager.default.fileExists(atPath: file.path))
+        #expect(try Data(contentsOf: renamed) == bytes && rig.library.item(meme.id)?.words == meme.words)
 
         // Rename again: the box starts with the title. Esc changes nothing.
         session.perform(.rename)
@@ -180,19 +194,25 @@ import UniformTypeIdentifiers
         session.escape()
         #expect(rig.library.item(meme.id)?.title == "This is fine" && session.query == "" && session.isOpen)
 
-        // An empty text clears the title. The tile shows its first 3 words again.
+        // An empty text and the same name change nothing.
+        for text in ["", "  This is  fine "] {
+            session.select(try rig.place(of: meme.key))
+            session.perform(.rename)
+            session.setQuery(text)
+            session.enter(shift: false)
+            #expect(rig.library.item(meme.id)?.title == "This is fine" && session.query == "This is fine", "\(text)")
+            #expect(session.selectedItem?.key == meme.key && session.notice == nil, "\(text)")
+        }
+
+        // The file is gone (deleted in Finder while the panel is open): the old name stays, and the grey line says why.
+        try FileManager.default.removeItem(at: renamed)
         session.select(try rig.place(of: meme.key))
         session.perform(.rename)
-        session.setQuery("")
+        session.setQuery("Gone")
         session.enter(shift: false)
-        let cleared = try #require(rig.library.item(meme.id))
-        #expect(cleared.title == "" && PickSession.label(of: .own(cleared)) == "fine coffee dog")
-        #expect(session.query == "" && session.selectedItem?.key == meme.key)
-
-        // The file never changed: the same name, the same bytes, and no other file.
-        #expect(cleared.file == meme.file && rig.library.fileURL(of: cleared) == file)
-        #expect(try Data(contentsOf: file) == bytes)
-        #expect(rig.folder.names(in: file.deletingLastPathComponent()) == [file.lastPathComponent])
+        #expect(session.notice?.hasPrefix("Can't rename the file. ") == true)
+        #expect(session.lines.first == .title(try #require(session.notice)) && session.query == "This is fine")
+        #expect(rig.folder.names(in: file.deletingLastPathComponent()).isEmpty)
     }
 
     /// The text below a tile: the title, else the first 3 words of the item. A KLIPY tile shows KLIPY's title,
