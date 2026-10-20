@@ -157,24 +157,39 @@ enum MediaName {
 
     /// The longest file name with no extension (D24 of YAZ-3018).
     static let longestName = 120
+    /// The most UTF-8 bytes of a file name with no extension. With " 9999" and ".jpeg", a name stays under the 255
+    /// bytes of APFS, also in Arabic, Chinese or emoji.
+    static let longestNameBytes = 240
 
     /// The name rule of "Rename…" and of an add (D24, D25 of YAZ-3018): the text as a file name with no extension.
     /// Trimmed, one space between words, `/` and `:` as `-`, no dot at the start (the file never becomes hidden),
-    /// 120 characters at most. "" when nothing is left.
+    /// 120 characters and 240 UTF-8 bytes at most, cut between two characters. "" when nothing is left.
     static func fileName(_ text: String) -> String {
         var name = Item.cleanTitle(String(text.map { $0 == "/" || $0 == ":" ? "-" : $0 }))
         while name.hasPrefix(".") { name = Item.cleanTitle(String(name.dropFirst())) }
         if name.count > longestName { name = Item.cleanTitle(String(name.prefix(longestName))) }
+        if name.utf8.count > longestNameBytes {
+            var bytes = 0
+            let kept = name.prefix { character in
+                bytes += character.utf8.count
+                return bytes <= longestNameBytes
+            }
+            name = Item.cleanTitle(String(kept))
+        }
         return name
     }
 
-    /// `<folder>/<name>.<ext>`, else `<name> 2.<ext>`, `<name> 3.<ext>` and so on (D24, D25 of YAZ-3018): the first
-    /// name that is free, or whose file `isSame` says is the same file.
+    /// `<name>.<ext>` for the first try, then `<name> 2.<ext>`, `<name> 3.<ext>` and so on (D24, D25 of YAZ-3018).
+    static func numbered(_ name: String, _ number: Int, ext: String) -> String {
+        let base = number == 1 ? name : "\(name) \(number)"
+        return ext.isEmpty ? base : "\(base).\(ext)"
+    }
+
+    /// The first name of `numbered` in `folder` that is free, or whose file `isSame` says is the same file.
     static func freeURL(in folder: URL, name: String, ext: String, isSame: (URL) -> Bool) -> URL {
         var number = 1
         while true {
-            let base = number == 1 ? name : "\(name) \(number)"
-            let url = folder.appendingPathComponent(ext.isEmpty ? base : "\(base).\(ext)")
+            let url = folder.appendingPathComponent(numbered(name, number, ext: ext))
             if !FileManager.default.fileExists(atPath: url.path) || isSame(url) { return url }
             number += 1
         }

@@ -70,6 +70,14 @@ public struct Item: Codable, Equatable, Sendable {
         return "\(kind.rawValue):\(id)"
     }
 
+    /// The key of the same file in the other tab: `meme:<id>` for `gif:<id>`, and back. Nil for a KLIPY item.
+    /// A move between `gifs/` and `memes/` changes the key, so the search reads the uses and the learned words of
+    /// both keys (decision of YAZ-3019: a move between gifs/ and memes/ keeps the uses).
+    public var otherKey: String? {
+        if klipyID != nil, file == nil { return nil }
+        return "\(kind == .gif ? ItemKind.meme.rawValue : ItemKind.gif.rawValue):\(id)"
+    }
+
     public var isRemoved: Bool { removed != nil }
 
     /// The `id` of a saved KLIPY item. Two Macs that save the same KLIPY item get the same `id`.
@@ -551,14 +559,16 @@ public final class LibraryStore {
     /// "Rename…" (D24 of YAZ-3018): moves the file of your own item to the new name in its folder, with
     /// `FileManager.moveItem`. The name rule of `MediaName.fileName` applies, and the extension stays. A different file
     /// with that name gives " 2". The hash stays, so the words and the uses stay, and the list file does not change.
-    /// An empty text or the same name changes nothing: false. The file is gone, or the move fails: it throws
+    /// An empty text, the same name, or the title of the file name (the text that "Rename…" starts with: `A-B-C.png`
+    /// shows "A B C") changes nothing: false. The file is gone, or the move fails: it throws
     /// `RenameFailure`, and the file keeps its name.
     @discardableResult
     public func rename(_ id: String, to text: String) throws -> Bool {
         guard let file = files[id] else { throw RenameFailure(reason: "The file is not in the GIFs and memes folder.") }
         let source = mediaFolder.appendingPathComponent(file.path)
         let name = MediaName.fileName(text)
-        guard !name.isEmpty, name != source.deletingPathExtension().lastPathComponent else { return false }
+        guard !name.isEmpty, name != source.deletingPathExtension().lastPathComponent,
+              name != MediaName.fileName(MediaName.title(ofPath: file.path)) else { return false }
         // A change of the case only is the same file on the disk of a Mac, not a clash.
         let target = MediaName.freeURL(in: source.deletingLastPathComponent(), name: name, ext: source.pathExtension) {
             $0.lastPathComponent.lowercased() == source.lastPathComponent.lowercased()
@@ -679,19 +689,27 @@ public final class LibraryStore {
             .appendingPathComponent("\(name.isEmpty ? file.id : name).\(file.ext)")
     }
 
-    /// Writes the bytes as a new file, with an atomic write (D25 of YAZ-3018). A file with the same bytes at that name
-    /// is used, with no write. A different file with that name gives " 2", " 3" and so on. Returns the file.
-    /// Safe off the main thread.
+    /// Writes the bytes as a new file (D25 of YAZ-3018). A file with the same bytes at that name is used, with no write.
+    /// A different file with that name gives " 2", " 3" and so on. Returns the file. Safe off the main thread.
+    /// The bytes go into a hidden temp file in the folder first, then one rename with `RENAME_EXCL` to the name. That
+    /// rename never writes over a file, also when two adds want one name at the same time: the second gets `EEXIST` and
+    /// takes the next number. (`FileManager.moveItem` checks the name first, then renames: two adds can pass the check.)
     @discardableResult
     public static func writeMediaFile(_ bytes: Data, to url: URL) throws -> URL {
         let folder = url.deletingLastPathComponent()
-        let target = MediaName.freeURL(in: folder, name: url.deletingPathExtension().lastPathComponent, ext: url.pathExtension) {
-            (try? Data(contentsOf: $0, options: .mappedIfSafe)) == bytes
-        }
-        guard !FileManager.default.fileExists(atPath: target.path) else { return target }
+        let name = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try bytes.write(to: target, options: .atomic)
-        return target
+        let temp = folder.appendingPathComponent(".\(UUID().uuidString).part")
+        try bytes.write(to: temp)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        var number = 1
+        while true {
+            let target = folder.appendingPathComponent(MediaName.numbered(name, number, ext: ext))
+            if (try? Data(contentsOf: target, options: .mappedIfSafe)) == bytes { return target }
+            if renamex_np(temp.path, target.path, UInt32(RENAME_EXCL)) == 0 { return target }
+            guard errno == EEXIST else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: target.path]) }
+            number += 1
+        }
     }
 
     /// The file to give to `add` (D25 of YAZ-3018): `source` itself when it is already below `gifs/` or `memes/` with
@@ -713,7 +731,8 @@ public final class LibraryStore {
 
     /// Reads the tree of `gifs/` and `memes/` (D27 of YAZ-3018). A file with the same path, size and date as in the
     /// cache uses the saved `id`. A new or changed file needs a hash: at once with no `onHashed`, else off the main
-    /// thread (`startHashes`). The cache keeps only the files of this scan. Returns true when the files changed.
+    /// thread (`startHashes`). The cache keeps only the files of this scan, but a missing folder does not change it.
+    /// Returns true when the files changed.
     private func scanFiles(startHashes: Bool = true) -> Bool {
         let folderIsMissing = isMediaFolderMissing()
         let listed = folderIsMissing ? [] : MediaScan.list(mediaFolder)
@@ -730,8 +749,11 @@ public final class LibraryStore {
             // The same picture twice: the first path in sorted order (D27 of YAZ-3018).
             if found[id].map({ file.path < $0.path }) ?? true { found[id] = file }
         }
-        cache.files = kept
-        saveCache()
+        // A missing folder (an unmounted drive) keeps the cache: the files need no hash when the drive comes back.
+        if !folderIsMissing {
+            cache.files = kept
+            saveCache()
+        }
         if !unknown.isEmpty, startHashes { hashInBackground(unknown) }
         let changed = found != files || folderIsMissing != mediaFolderIsMissing
         files = found

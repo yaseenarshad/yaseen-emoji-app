@@ -189,11 +189,12 @@ public enum MediaImport {
     // MARK: The still picture of a tile (D5)
 
     /// The still picture of an item: a 290 × 290 PNG of the first frame, aspect-fill, in `folder` as `<id>.png`.
-    /// The `id` comes from the file name `<id>.<ext>`. It makes the picture only when it is missing.
+    /// The `id` is the hash of the file, not its name: two files with one name in two folders get two stills, and an
+    /// edit in place gets a new still (D22 of YAZ-3018). It makes the picture only when it is missing.
     /// `folder` is a parameter, so a test gives a temp folder.
     @discardableResult
-    public static func thumbnail(of file: URL, into folder: URL) async throws -> URL {
-        try await Task.detached(priority: .utility) { try makeThumbnail(of: file, into: folder) }.value
+    public static func thumbnail(of file: URL, id: String, into folder: URL) async throws -> URL {
+        try await Task.detached(priority: .utility) { try makeThumbnail(of: file, id: id, into: folder) }.value
     }
 
     /// Removes the still picture of an item that is gone (D5).
@@ -201,8 +202,8 @@ public enum MediaImport {
         try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(id).png"))
     }
 
-    static func makeThumbnail(of file: URL, into folder: URL) throws -> URL {
-        let target = folder.appendingPathComponent(file.deletingPathExtension().lastPathComponent + ".png")
+    static func makeThumbnail(of file: URL, id: String, into folder: URL) throws -> URL {
+        let target = folder.appendingPathComponent("\(id).png")
         if FileManager.default.fileExists(atPath: target.path) { return target }
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],

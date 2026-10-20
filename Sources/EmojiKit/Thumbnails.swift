@@ -85,7 +85,7 @@ final class Thumbnails {
             loading.insert(next.id)
             let folder = self.folder
             Task { [weak self] in
-                let image = await Thumbnails.load(next.file, into: folder)
+                let image = await Thumbnails.load(next.file, id: next.id, into: folder)
                 self?.finish(next.id, image)
             }
         }
@@ -104,8 +104,8 @@ final class Thumbnails {
 
     /// Makes the PNG when it is missing, then decodes it, all off the main thread.
     /// The decode happens here, not at the first draw, so a scroll does not wait for it.
-    nonisolated static func load(_ file: URL, into folder: URL) async -> CGImage? {
-        guard let png = try? await MediaImport.thumbnail(of: file, into: folder) else { return nil }
+    nonisolated static func load(_ file: URL, id: String, into folder: URL) async -> CGImage? {
+        guard let png = try? await MediaImport.thumbnail(of: file, id: id, into: folder) else { return nil }
         return await Task.detached(priority: .utility) { decode(png) }.value
     }
 

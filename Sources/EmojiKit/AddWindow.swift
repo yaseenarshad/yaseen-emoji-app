@@ -227,8 +227,11 @@ final class AddModel: ObservableObject {
 
     /// A drop, "Choose files…" or a paste: one row for each source. Each row shows "Getting it ready…" until
     /// `MediaImport.prepare` is done.
+    /// The store reads the folder again first (D27 of YAZ-3018): a picture that you put in Finder after the last open of
+    /// the panel is then known, and an add of the same picture from a different place writes no second file.
     func add(_ sources: [AddSource]) {
         guard !sources.isEmpty else { return }
+        library.reload()
         notice = nil
         for source in sources {
             let id = nextID

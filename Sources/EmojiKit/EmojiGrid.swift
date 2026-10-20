@@ -301,7 +301,7 @@ final class EmojiGridView: NSView, NSMenuDelegate {
     /// The URL of the moving picture of a GIF tile: your file, or the KLIPY preview.
     private func movingURL(of item: PickItem) -> URL? {
         switch item {
-        case .own(let own): return session.library.fileURL(of: own)
+        case .own(let own): return session.library.fileURL(of: own).map { MovingPictures.ownURL($0, id: own.id) }
         case .online(let online): return online.preview
         case .emoji: return nil
         }

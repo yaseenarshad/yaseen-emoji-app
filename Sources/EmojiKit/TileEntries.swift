@@ -22,6 +22,12 @@ enum PickItem: Equatable {
         return nil
     }
 
+    /// The key of your own file in the other tab (`Item.otherKey`), or nil.
+    var otherKey: String? {
+        if case .own(let item) = self { return item.otherKey }
+        return nil
+    }
+
     /// GIF or meme. Nil for an emoji.
     var kind: ItemKind? {
         switch self {
@@ -51,6 +57,8 @@ enum PickItem: Equatable {
 final class TileEntry: Searchable {
     let item: PickItem
     let key: String
+    /// The key of your own file in the other tab: its uses and learned words count too.
+    let otherKey: String?
     /// The title, normalized, or "".
     let name: String
     let nameBytes: [UInt8]
@@ -60,6 +68,7 @@ final class TileEntry: Searchable {
     init(item: PickItem, words: [String], title: String = "", order: Int) {
         self.item = item
         key = item.key
+        otherKey = item.otherKey
         self.order = order
         name = Search.normalize(title)
         nameBytes = Array(name.utf8)

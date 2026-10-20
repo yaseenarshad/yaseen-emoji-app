@@ -89,7 +89,7 @@ When you add a meme, your Mac reads the words in the picture, on your Mac only. 
 
 ### Keep your own GIFs and memes
 
-Drop GIFs, videos and memes into the add window, or paste them. A video becomes a GIF. The title comes from the file name. Type one word, and click Add.
+Drop GIFs, videos and memes into the add window, or paste them. A video becomes a GIF. The title comes from the file name, and the new file gets the title as its name. Type one word, and click Add.
 
 **So what:** the GIFs from your phone and your group chats are in one place, and one word finds them.
 
@@ -147,7 +147,7 @@ No. The app is free, with the [MIT license](LICENSE). The KLIPY key is free too.
 Apple has not notarized the app, so macOS stops it one time: click "Open Anyway" in System Settings › Privacy & Security. Then the app asks for Accessibility. It needs it to paste for you. Without it, a pick copies, and you paste with ⌘V.
 
 **What happens to my GIFs if I stop using it?**
-They stay yours. Your GIFs and memes are normal files in the folders `gifs/` and `memes/`, and the list is a JSON file next to them. Delete the app, and the files stay where they are.
+They stay yours. Your GIFs and memes are normal files in the folders `gifs/` and `memes/`, and the list is a JSON file next to them. The list keeps the words of each file by the hash of the file, so a rename or a move in Finder keeps them. Delete the app, and the files stay where they are.
 
 ## The download
 
@@ -176,7 +176,7 @@ The first three things to try:
 | Tab, Shift+Tab | Go to the next tab, or the one before: Emoji, GIFs, Memes. ⌘1, ⌘2 and ⌘3 also go to a tab. |
 | Arrow keys | Move the blue box. |
 | ⌘C | Copy the item only, and close. |
-| Right-click | "Add a word…", "Copy only", and more for each kind. On your own GIF or meme: "Rename…" and "Show in Finder". On a KLIPY GIF: "Save to your GIFs". In "Your most used", also "Hide from Your most used". |
+| Right-click | "Add a word…", "Copy only", and more for each kind. On your own GIF or meme: "Rename…" (it renames the file) and "Show in Finder". On a KLIPY GIF: "Save to your GIFs". In "Your most used", also "Hide from Your most used". |
 | Press and drag | Move the panel. The next open puts it in the middle again. |
 
 Settings › Enter and paste can make Enter close the panel, as Shift+Enter does.
@@ -185,8 +185,9 @@ Settings › Enter and paste can make Enter close the panel, as Shift+Enter does
 
 - **Your history and your list:** in the preferences folder. The default is `~/Library/Application Support/Yaseen Emoji`. Each Mac writes its own `you-<Mac name>.json` and `library-<Mac name>.json`.
 - **Your GIFs and memes:** in `gifs/` and `memes/`, in the preferences folder by default. Settings › GIFs and memes can move them to a different folder.
-- **One file is at most 10 MB,** after a video becomes a GIF. The app takes GIF, MP4, MOV, PNG, JPEG and HEIC.
-- **Two Macs:** point each Mac at one folder that syncs (Settings › Sync folder). Each Mac adds up the files of all Macs.
+- **Your folder is your collection.** Make subfolders, and move or rename files in Finder. The app reads the folder each time the panel opens. The file name is the title. The folder names are search words: a file in `memes/Infinite game/` is found by "infinite game".
+- **The add window:** one file is at most 10 MB, after a video becomes a GIF. It takes GIF, MP4, MOV, PNG, JPEG and HEIC. From Finder, the app takes GIF, PNG and JPEG of any size.
+- **Two Macs:** point each Mac at one folder that syncs (Settings › Sync folder). Each Mac adds up the files of all Macs. Install the newest build on both Macs: an old build hides the files that the new build renamed.
 
 ## For developers
 

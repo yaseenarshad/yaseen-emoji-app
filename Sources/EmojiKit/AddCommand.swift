@@ -5,7 +5,8 @@ import AppKit
 /// (D5, D8, D12, D15 of YAZ-2919): `MediaImport.prepare`, the words, the title from the file name, then
 /// `LibraryStore.add`. It prints one line for each file, and shows no window.
 /// The new file gets the name of the title (D25 of YAZ-3018). A file that is already in `gifs/` or `memes/` is not
-/// copied: only its words go into the list. This is how an agent adds keywords to the files that Yaseen put in Finder.
+/// copied and not changed, of any size: only its words go into the list. This is how an agent adds keywords to the
+/// files that Yaseen put in Finder.
 public enum AddCommand {
     public static let usage = "Usage: YaseenEmoji --add-media <file> [<file> …] [--words \"<word> <word>\"]"
     public static let appRunsText = "Quit Yaseen Emoji first. The app keeps its own list and would write over the new items."
@@ -64,7 +65,16 @@ public enum AddCommand {
         var code: Int32 = 0
         for file in files {
             do {
-                let prepared = try await MediaImport.prepare(file)
+                let prepared: PreparedFile
+                if let inside = MediaScan.place(of: file, in: library.mediaFolder),
+                   MediaScan.extensions.contains(file.pathExtension.lowercased()) {
+                    // A GIF, PNG or JPEG that is already in the folder (D25 of YAZ-3018): no `prepare`, so no 10 MB limit.
+                    // The bytes stay as they are, and only the words go into the list.
+                    let bytes = try Data(contentsOf: file, options: .mappedIfSafe)
+                    prepared = PreparedFile(bytes: bytes, ext: file.pathExtension.lowercased(), kind: inside.kind)
+                } else {
+                    prepared = try await MediaImport.prepare(file)
+                }
                 var words = given
                 if words.isEmpty, prepared.kind == .meme { words = await MediaImport.readText(in: prepared.bytes) }
                 if words.isEmpty { words = AddCommand.words(fromName: file) }

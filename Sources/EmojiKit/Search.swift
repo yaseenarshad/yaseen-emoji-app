@@ -66,14 +66,14 @@ public enum Search {
                 continue
             }
             let found: (match: Match, isWholeText: Bool)?
-            if !learned.isEmpty && learned[entry.key] != nil {
+            if !learned.isEmpty && (learned[entry.key] != nil || entry.otherKey.map { learned[$0] != nil } == true) {
                 found = (.learned, true)
             } else {
                 let addedWords = added.isEmpty ? [] : added[entry.key] ?? []
                 found = match(text: textBytes, terms: terms, entry: entry, added: addedWords)
             }
             if let found {
-                let uses = you.uses.isEmpty ? 0 : you.uses[entry.key]?.count ?? 0
+                let uses = you.uses.isEmpty ? 0 : use(of: entry, in: you)?.count ?? 0
                 candidates.append(Candidate(index: index, order: entry.order, match: found.match,
                                             isWholeText: found.isWholeText,
                                             isName: found.match == .exact && normalize(entry.name) == text,
@@ -168,7 +168,8 @@ public enum Search {
     /// `order` is newest first.
     static func mostUsed<Entry: Searchable>(of catalog: [Entry], you: You, limit: Int) -> [Entry] {
         let used = catalog.compactMap { entry in
-            you.isHidden(entry.key) ? nil : you.uses[entry.key].map { (entry: entry, use: $0) }
+            you.isHidden(entry.key) || entry.otherKey.map(you.isHidden) == true
+                ? nil : use(of: entry, in: you).map { (entry: entry, use: $0) }
         }
         let sorted = used.sorted { a, b in
             if a.use.count != b.use.count { return a.use.count > b.use.count }
@@ -176,6 +177,17 @@ public enum Search {
             return a.entry.order < b.entry.order
         }
         return sorted.prefix(max(0, limit)).map(\.entry)
+    }
+}
+
+extension Search {
+    /// The uses of an entry: of its key, plus the uses of `otherKey` (your file that moved between `gifs/` and
+    /// `memes/`): the counts add up, and the newer last use counts. Two lookups at most, so O(1) for each entry.
+    static func use<Entry: Searchable>(of entry: Entry, in you: You) -> You.Use? {
+        let own = you.uses[entry.key]
+        guard let other = entry.otherKey, let moved = you.uses[other] else { return own }
+        guard let own else { return moved }
+        return You.Use(count: own.count + moved.count, last: max(own.last, moved.last))
     }
 }
 
@@ -190,6 +202,10 @@ protocol Searchable {
     var wordBytes: [[UInt8]] { get }
     /// The last rule of the order: Unicode order for an emoji, newest first for an item.
     var order: Int { get }
+    /// A second key whose uses and learned words count too: your own file in the other tab. Nil for an emoji.
+    var otherKey: String? { get }
 }
 
-extension Emoji: Searchable {}
+extension Emoji: Searchable {
+    var otherKey: String? { nil }
+}
