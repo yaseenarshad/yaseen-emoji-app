@@ -173,7 +173,7 @@ The first three things to try:
 | Enter, or a click | Paste the item with the blue box. The panel stays open, and the word stays selected. Enter again pastes it again. A new word replaces the old one. |
 | Shift+Enter | Paste, and close the panel. |
 | Esc | Close the panel. |
-| Tab, Shift+Tab | Go to the next tab, or the one before: Emoji, GIFs, Memes. ⌘1, ⌘2 and ⌘3 also go to a tab. |
+| Tab, Shift+Tab | Go to the next tab, or the one before: Emoji, Memes, GIFs. ⌘1, ⌘2 and ⌘3 also go to a tab. |
 | Arrow keys | Move the blue box. |
 | ⌘C | Copy the item only, and close. |
 | Right-click | "Add a word…", "Copy only", and more for each kind. On your own GIF or meme: "Rename…" (it renames the file) and "Show in Finder". On a KLIPY GIF: "Save to your GIFs". In "Your most used", also "Hide from Your most used". |

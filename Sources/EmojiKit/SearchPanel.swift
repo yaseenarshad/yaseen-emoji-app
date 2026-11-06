@@ -23,7 +23,7 @@ enum PanelPlace {
 final class SearchPanel: NSPanel {
     /// ⌘C: "Copy only" (D8).
     var onCopy: () -> Void = {}
-    /// ⌘1, ⌘2, ⌘3: the Emoji, GIFs or Memes tab (D10 of YAZ-2919). The number is 0, 1 or 2.
+    /// ⌘1, ⌘2, ⌘3: the Emoji, Memes or GIFs tab (D10 of YAZ-2919). The number is 0, 1 or 2.
     var onTab: (Int) -> Void = { _ in }
     /// While true, the panel refuses the keyboard, so the app in front keeps it for the ⌘V (D21 of YAZ-2919).
     var refusesKey = false

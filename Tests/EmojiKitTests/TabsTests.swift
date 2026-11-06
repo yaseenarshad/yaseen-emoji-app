@@ -39,13 +39,13 @@ import Testing
             seen.append(session.tab)
             #expect(session.query == "party")
         }
-        #expect(seen == [.gifs, .memes, .emoji])
+        #expect(seen == [.memes, .gifs, .emoji])
         session.nextTab(back: true)
-        #expect(session.tab == .memes && session.query == "party")
-        #expect(session.placeholder == "Search your memes")
-        session.select(tab: .gifs)
+        #expect(session.tab == .gifs && session.query == "party")
         #expect(session.placeholder == "Search your GIFs")
-        #expect(PickSession.Tab.allCases.map(\.title) == ["Emoji", "GIFs", "Memes"])
+        session.select(tab: .memes)
+        #expect(session.placeholder == "Search your memes")
+        #expect(PickSession.Tab.allCases.map(\.title) == ["Emoji", "Memes", "GIFs"])
 
         let online = FakeOnline()
         let withKey = try PickRig(online: online)

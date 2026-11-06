@@ -46,7 +46,7 @@ final class PickSession {
 
     /// The three tabs (D10 of YAZ-2919). Each open starts on Emoji.
     enum Tab: Int, CaseIterable {
-        case emoji, gifs, memes
+        case emoji, memes, gifs
 
         var title: String {
             switch self {
